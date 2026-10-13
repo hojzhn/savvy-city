@@ -272,7 +272,40 @@ public sealed class StartingState
                 records.Add(record);
             }
 
-        // ---- grudges toward every past partner, and dissolved records for recent breakups with resident exes
+        // ---- involvements running alongside both residents' primary ones
+        foreach (var a in residents)
+            foreach (int i in a.AlongsideIndexes)
+            {
+                if (a.PartnerLinks[i] is not int bid || bid < a.Id) continue;
+                var b = residents[bid];
+                int j = Array.IndexOf(b.PartnerLinks, (int?)a.Id);
+                if (j < 0 || b.Pawn.Partners[j].Ended) continue;
+                var pa = a.Pawn.Partners[i];
+                var pb = b.Pawn.Partners[j];
+                double years = (pa.Years(a.Age) + pb.Years(b.Age)) / 2.0;
+                int startedDay = -(int)Math.Max(14, years * DaysPerYear + R("alongside", Id(a.Id), Id(b.Id)).NextInt(0, DaysPerYear));
+                double[] dA = Scale(a.U, pa.Level), dB = Scale(b.U, pb.Level);
+                var pattern = dA.Select((v, k) => Math.Clamp((v + dB[k]) / 2, -1, 1)).ToArray();
+                var record = NewRecord(a, b, "alongside", startedDay, pattern, Math.Tanh(src.PowerScale * (Standing(a) - Standing(b))));
+                if (pa.Fields.GetValueOrDefault("agreement") == "defined" && pb.Fields.GetValueOrDefault("agreement") == "defined")
+                    record.Agreements.Add(new Agreement("define", (double[])pattern.Clone(), src.DefineMass, startedDay / 2, (Excl(a) + Excl(b)) / 2));
+                // Hidden from a partner who has an agreement with either of them (8.4).
+                bool Anchored(Resident r) => r.CurrentPartner is { } p && p.Fields.GetValueOrDefault("agreement") != "none";
+                record.Secrecy = Anchored(a) || Anchored(b) ? 1 : 0.3;
+                foreach (var (self, desire, otherDesire, sign) in new[] { (a, dA, dB, 1.0), (b, dB, dA, -1.0) })
+                {
+                    var side = record.Side(self.Id);
+                    side.Desire = desire;
+                    side.Drive = Drive(self, sign * record.Power);
+                    side.Tolerance = Tolerance(self, record.Agreements.Count > 0 ? record.Agreements[0].Exclusivity : 0);
+                    side.Investment = Investment(years, 0);
+                    side.Trust = Trust(self);
+                    side.EstimateOfOther = Estimate(self, otherDesire, years);
+                }
+                records.Add(record);
+            }
+
+        // ---- grudges toward every dissolved involvement, and a dissolved record for each one with a resident
         var exes = new Dictionary<int, List<ExFeeling>>();
         double? lastBreakup(Resident r) => exes[r.Id].Count == 0 ? null : exes[r.Id].Min(e => e.MonthsSince);
         foreach (var r in residents)
@@ -284,7 +317,7 @@ public sealed class StartingState
             {
                 var p = r.Pawn.Partners[i];
                 if (!p.Ended) continue;
-                double months = (r.Age - p.EndAge!.Value) * 12 + R("breakup", Id(r.Id), Id(i)).NextInt(0, 12);
+                double months = (p.WeeksSinceDissolved ?? 0) * 12 / 52;
                 string reason = p.EndReason ?? "";
                 // 8.5: grudge = harm × blame, halving every 3 × (1 + 0.5 × neuroticism) months.
                 double grudge = src.Harm.GetValueOrDefault(reason, src.DefaultHarm) * src.Blame.GetValueOrDefault(reason, src.DefaultBlame)
@@ -295,16 +328,19 @@ public sealed class StartingState
         foreach (var a in residents)
             foreach (var feel in exes[a.Id])
             {
-                if (feel.Resident is not int bid || bid < a.Id || feel.MonthsSince > src.RecentBreakupYears * 12) continue;
+                if (feel.Resident is not int bid || bid < a.Id) continue;
                 var b = residents[bid];
                 var theirs = exes[bid].FirstOrDefault(e => e.Resident == a.Id);
                 if (theirs is null) continue;
                 var pa = a.Pawn.Partners[feel.PartnerIndex];
+                var pb = b.Pawn.Partners[theirs.PartnerIndex];
                 double months = Math.Min(feel.MonthsSince, theirs.MonthsSince);
                 int startedDay = -(int)((months / 12 + pa.Years(a.Age)) * DaysPerYear);
-                // The pattern they had, drained by 10% a week since the breakup (8.3 Dissolve).
-                double drain = Math.Pow(0.9, months * 52 / 12);
-                var pattern = a.U.Select((v, k) => 0.25 * (v + b.U[k]) * drain).ToArray();
+                // The pattern they had, drained since the dissolve (8.3): its size is the involvement's level now.
+                double level = (pa.Level + pb.Level) / 2;
+                var mid = a.U.Select((v, k) => v + b.U[k]).ToArray();
+                double norm = Math.Max(Norm(mid), 1e-9);
+                var pattern = mid.Select(v => v / norm * level).ToArray();
                 var record = NewRecord(a, b, "ex", startedDay, pattern, Math.Tanh(src.PowerScale * (Standing(a) - Standing(b))));
                 record.Dissolved = true;
                 record.WeeksStable = Math.Max(1, (int)(months * 52 / 12));

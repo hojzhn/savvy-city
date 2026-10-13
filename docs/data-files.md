@@ -170,9 +170,11 @@ current age the first time), `channels` (add deltas).
 this year by items above it, and changes made by items below it as of last
 year.
 
-**Involvements (relationships).** A relationship is not stored as a label. A
-pawn can be involved with several people at once, and each involvement has its
-own fields, declared in the `involvement` section:
+**Involvements (relationships).** A relationship is not stored as a label, and
+it never ends. A pawn can be involved with several people at once; each
+involvement has its own fields, declared in the `involvement` section, and a
+level (how involved the two are, 0–1) that stands in for the size of the
+pattern in attraction spec 8.3.
 
 ```yaml
 involvement:
@@ -185,25 +187,33 @@ involvement:
     rules:
       - { when: { any_inv.agreement: formalized }, value: married }
       - { when: { any_inv.living_together: "yes" }, value: cohabiting }
-      - { when: { state.involvements: ">=1" }, value: dating }
+      - { when: { any_inv.dissolved: "no" }, value: dating }
       - { value: single }
+  level:
+    field: agreement           # where the level settles depends on the agreement
+    settles_at: { none: 0.3, defined: 0.6, formalized: 0.8 }
+    approach: 0.5              # share of the gap closed each year
+    drain_per_week: 0.1        # after a dissolve (8.3: 10% a week)
+    involved_at: 0.05          # what state.involvements counts
 ```
 
 | Piece | Meaning |
 | ----- | ----- |
-| `per_involvement: true` | An event rolls once a year for each ongoing involvement. Inside it, `inv.<field>` and `inv.years` are that involvement's. Leave out frequency, ages, max and must_happen. |
-| `any_inv.<field>` | Elsewhere: true if any ongoing involvement matches. |
+| `per_involvement: true` | An event rolls once a year for each involvement not dissolved. Inside it, `inv.<field>`, `inv.years` and `inv.level` are that involvement's. Leave out frequency, ages, max and must_happen. |
+| `any_inv.<field>` | Elsewhere: true if any involvement, past or present, matches. Also `any_inv.dissolved` and `any_inv.level`. |
 | `start_involvement: true` | In an event's own effects: start an involvement. `inv.<field>` sets in the same event (including its outcomes) apply to it. |
-| `end_involvement: true` | In a per-involvement event: the involvement ends. The outcome id is how it ended. |
-| `state.relationship` | Derived from the label rules whenever an involvement starts, changes or ends. No effect can set it. |
-| `state.involvements`, `state.relationship_years` | Built in: how many involvements are ongoing, and the longest one's years (counted at the end of each year, including the current one). |
+| `dissolve: true` | In a per-involvement event: 8.3 Dissolve. Nothing ends: the involvement stops rolling per-involvement events, and its level drains week by week toward 0 from the week it happened. Set its fields as the dissolve leaves them (breakup and divorce set the agreement to none: Dissolve removes all anchors). The outcome id is how it was dissolved. |
+| `state.relationship` | Derived from the label rules whenever an involvement starts, changes or is dissolved. No effect can set it. |
+| `state.involvements` | Built in: how many involvements, past or present, are at `involved_at` or above. A pawn whose ex is still draining counts it. |
+| `state.relationship_years` | Built in: the longest undissolved involvement's years (counted at the end of each year, including the current one). |
 
-Each involvement becomes a partner record. The agreement field `formalized`
-marks a marriage and the partner_sex field `same` a same-sex partner. Each
-partner also gets an age gap, a standing and an availability from
-`relationships.yaml` `past_partners`. Without an involvement section, the old
-tags (`relationship_start`, `relationship_married`, `relationship_end`) still
-build a one-at-a-time partner list.
+Each involvement becomes a partner record, with its level now and the weeks
+since it was dissolved. An involvement whose agreement was ever `formalized` is
+a marriage, and partner_sex `same` marks a same-sex partner. Each partner also
+gets an age gap, a standing and an availability from `relationships.yaml`
+`past_partners`. Without an involvement section, the old tags
+(`relationship_start`, `relationship_married`, `relationship_end`) still build
+a one-at-a-time partner list.
 
 **Summaries.** At the end, each event writes `life.<id>` (never, once, twice,
 3_plus) and each fork writes its last choice (or not_reached). Adult traits can

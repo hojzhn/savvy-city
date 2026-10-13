@@ -148,10 +148,21 @@ and spec section 9.
   turns on living together; marry formalizes it; breakup and divorce dissolve
   it. Rates are unchanged, and the population barely moved (married 49.6% before
   and after, over 3,000 pawns).
-* **One at a time, for now.** The engine allows any number of ongoing
-  involvements, but start_dating still requires none, so pawns have one at a
-  time as before. Casual and overlapping involvements (hookups, affairs,
-  non-monogamy) are the next step.
+* **Involvements never end (2026-10-13).** Following 8.3, breakup and divorce
+  dissolve: they remove the agreements, and the involvement's level drains by
+  10% a week from the week it happened. Past partners stay involvements at or
+  near 0, and every one with a resident becomes a starting-state record. No
+  events were added for casual relationships: no rule names a phenomenon.
+* **Several involvements at once come from 7.6 openness, not new events.**
+  start_dating no longer requires being single. Mods lower the chance for a pawn
+  already involved, more with an agreement and most when formalized, as 7.6's
+  openness does; nobody moves in with or marries a second person. About 4% of
+  pawns hold two or more undissolved involvements at once, and 3% of a city's
+  residents have one alongside their primary one (PLACEHOLDER sizes). The city
+  treats the most anchored involvement as the primary one for couple matching;
+  the others link to residents' alongside involvements that started the same
+  year, and become starting-state records, secret when either side has an
+  agreement with someone else (8.4).
 * **Labels stay as calibration targets.** Researched rates are labeled (marriage
   and divorce rates by year); they remain the base rates of the agreement
   events, and the derived label shares are what gets checked.

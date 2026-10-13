@@ -114,7 +114,7 @@ public class CityTests
             Assert.Equal(r.Relationship, p.Relationship);
             Assert.Equal(r.CurrentPartner!.Sex, p.Sex);
             Assert.InRange(Math.Abs(r.RelationshipYears - p.RelationshipYears), 0, Data.Relations!.City.YearsTolerance);
-            Assert.Equal(p.Id, r.PartnerLinks[^1]);
+            Assert.Equal(p.Id, r.PartnerLinks[r.CurrentPartnerIndex]);
         }
         Assert.Equal(c.Residents.Count(r => r.PartnerId is not null), 2 * c.Couples.Count);
     }

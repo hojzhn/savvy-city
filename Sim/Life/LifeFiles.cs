@@ -29,8 +29,34 @@ public sealed class InvolvementDto
 {
     public string? Note { get; set; }
     public List<InvolvementFieldDto> Fields { get; set; } = new();
-    /// <summary>Derives state.relationship whenever an involvement starts, changes or ends.</summary>
+    /// <summary>Derives state.relationship whenever an involvement starts, changes or dissolves.</summary>
     public InvolvementLabelDto Label { get; set; } = new();
+    /// <summary>How involved the two are (inv.level, 0–1): it settles by the agreements and drains after a dissolve.</summary>
+    public InvolvementLevelDto Level { get; set; } = new();
+}
+
+/// <summary>
+/// Attraction spec 8.3, coarsely: the level stands in for how far the pattern is
+/// from the origin. While the involvement holds, it moves each year toward where
+/// its agreements anchor it. After a dissolve, it drains week by week toward 0 but
+/// never ends: past partners stay involvements, at or near 0.
+/// </summary>
+public sealed class InvolvementLevelDto
+{
+    public string? Note { get; set; }
+    /// <summary>The field whose value sets where the level settles (for example agreement).</summary>
+    public string? Field { get; set; }
+    /// <summary>Where the level settles for each value of the field. Missing values settle at 1.</summary>
+    public Dictionary<string, double> SettlesAt { get; set; } = new();
+    /// <summary>Share of the gap to where it settles closed each year.</summary>
+    [DefaultValue(0.5)]
+    public double Approach { get; set; } = 0.5;
+    /// <summary>After a dissolve: share of the remaining level lost each week (8.3: 10%).</summary>
+    [DefaultValue(0.1)]
+    public double DrainPerWeek { get; set; } = 0.1;
+    /// <summary>state.involvements counts the involvements at or above this level.</summary>
+    [DefaultValue(0.05)]
+    public double InvolvedAt { get; set; } = 0.05;
 }
 
 public sealed class InvolvementFieldDto
@@ -176,8 +202,8 @@ public sealed class EffectsDto
     public Dictionary<string, double>? Channels { get; set; }
     /// <summary>Start a new involvement; inv.&lt;field&gt; sets in the same event apply to it.</summary>
     public bool StartInvolvement { get; set; }
-    /// <summary>Per-involvement events: the involvement ends (8.3 Dissolve). The outcome id is how it ended.</summary>
-    public bool EndInvolvement { get; set; }
+    /// <summary>Per-involvement events: 8.3 Dissolve. The agreements go and the level drains; the involvement never ends. The outcome id is how it was dissolved.</summary>
+    public bool Dissolve { get; set; }
 }
 
 public sealed class RuleDto

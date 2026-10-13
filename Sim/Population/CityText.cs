@@ -40,7 +40,10 @@ public static class CityText
         int exes = r.Sum(x => x.Pawn.Partners.Count(p => p.Ended));
         int friends = r.Sum(x => x.Friends.Count);
         sb.AppendLine().AppendLine("Links");
-        sb.AppendLine($"  past partners who are residents {c.Stats.ExLinks * 2} of {exes} ({Pct(c.Stats.ExLinks * 2, exes)})");
+        sb.AppendLine($"  dissolved involvements with residents {c.Stats.ExLinks * 2} of {exes} ({Pct(c.Stats.ExLinks * 2, exes)})");
+        int alongside = r.Sum(x => x.AlongsideIndexes.Count());
+        sb.AppendLine($"  residents with an involvement alongside their primary one {r.Count(x => x.AlongsideIndexes.Any())} ({Pct(r.Count(x => x.AlongsideIndexes.Any()), r.Count)}); " +
+                      $"{c.Stats.AlongsideLinks * 2} of those {alongside} involvements are with residents");
         sb.AppendLine($"  close friends who are residents {c.Stats.FriendLinks * 2} of {friends} ({Pct(c.Stats.FriendLinks * 2, friends)})");
 
         var s = c.Start;

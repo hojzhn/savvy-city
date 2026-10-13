@@ -89,13 +89,14 @@ public sealed class CityGenerator(GameData data)
             r.U = world.DesireDirection(r.X);
             r.PartnerLinks = new int?[r.Pawn.Partners.Count];
             r.FriendLinks = new int?[r.Friends.Count];
-            if (r.PartnerId is int pid) r.PartnerLinks[^1] = pid;
+            if (r.PartnerId is int pid) r.PartnerLinks[r.CurrentPartnerIndex] = pid;
         }
 
         var households = BuildHouseholds(residents, couples);
         int exLinks = LinkExes(residents, worldSeed);
+        int alongsideLinks = LinkAlongside(residents, worldSeed);
         int friendLinks = LinkFriends(residents, worldSeed);
-        var stats = new CityStats(made, discarded, dropped.Count, exLinks, friendLinks);
+        var stats = new CityStats(made, discarded, dropped.Count, exLinks, friendLinks, alongsideLinks);
 
         var city = new City
         {
@@ -117,7 +118,7 @@ public sealed class CityGenerator(GameData data)
     }
 
     static bool Partnered(Pawn p) =>
-        p.Facts.Cat("state.relationship") is { } s && s != "single" && p.Partners.Count > 0 && !p.Partners[^1].Ended;
+        p.Facts.Cat("state.relationship") is { } s && s != "single" && Resident.CurrentIndex(p) >= 0;
 
     // ------------------------------------------------------------ couples
 
@@ -138,19 +139,21 @@ public sealed class CityGenerator(GameData data)
     bool Compatible(Pawn a, Pawn b)
     {
         if (a.Facts.Cat("state.relationship") != b.Facts.Cat("state.relationship")) return false;
-        if (a.Partners[^1].Sex != b.Sex || b.Partners[^1].Sex != a.Sex) return false;
+        if (Current(a).Sex != b.Sex || Current(b).Sex != a.Sex) return false;
         return Math.Abs(Years(a) - Years(b)) <= _c.YearsTolerance;
     }
 
     double Cost(Pawn a, Pawn b)
     {
         double gap = b.Age - a.Age;
-        double age = (Math.Abs(gap - a.Partners[^1].AgeGap) + Math.Abs(-gap - b.Partners[^1].AgeGap)) / 2;
+        double age = (Math.Abs(gap - Current(a).AgeGap) + Math.Abs(-gap - Current(b).AgeGap)) / 2;
         double cost = _c.YearsCost * Math.Abs(Years(a) - Years(b)) + _c.AgeCost * age;
         if (a.Facts.Cat("state.relationship") is "cohabiting" or "married")
             cost += _c.ChildrenCost * Math.Abs((a.Facts.Num("state.children") ?? 0) - (b.Facts.Num("state.children") ?? 0));
         return cost;
     }
+
+    static Partner Current(Pawn p) => p.Partners[Resident.CurrentIndex(p)];
 
     static double Years(Pawn p) => p.Facts.Num("state.relationship_years") ?? 0;
 
@@ -238,6 +241,42 @@ public sealed class CityGenerator(GameData data)
                 b.R.PartnerLinks[b.Index] = r.Id;
                 links++;
             }
+        return links;
+    }
+
+    /// <summary>
+    /// Involvements that run alongside a resident's primary one link to another
+    /// resident's alongside involvement that started the same year (±1), sexes matching.
+    /// </summary>
+    int LinkAlongside(List<Resident> residents, ulong seed)
+    {
+        var open = residents.SelectMany(r => r.AlongsideIndexes.Select(i => (R: r, Index: i))).ToList();
+        int links = 0;
+        foreach (var (r, i) in open)
+        {
+            if (r.PartnerLinks[i] is not null) continue;
+            if (!Rng.For(seed, "city", "alongside", r.Id.ToString(CultureInfo.InvariantCulture), i.ToString(CultureInfo.InvariantCulture))
+                    .Chance(_c.AlongsideLinkChance)) continue;
+            var rec = r.Pawn.Partners[i];
+            int start = r.Pawn.BirthYear + rec.StartAge;
+            (Resident R, int Index)? best = null;
+            double bestCost = double.MaxValue;
+            foreach (var (s, j) in open)
+            {
+                if (s == r || s.PartnerLinks[j] is not null || r.PartnerLinks.Contains(s.Id)) continue;
+                var other = s.Pawn.Partners[j];
+                if (rec.Sex != s.Sex || other.Sex != r.Sex) continue;
+                int otherStart = s.Pawn.BirthYear + other.StartAge;
+                if (Math.Abs(otherStart - start) > 1) continue;
+                double gap = s.Age - r.Age;
+                double cost = Math.Abs(otherStart - start) + 0.25 * (Math.Abs(gap - rec.AgeGap) + Math.Abs(-gap - other.AgeGap)) / 2;
+                if (cost < bestCost) (best, bestCost) = ((s, j), cost);
+            }
+            if (best is not { } b) continue;
+            r.PartnerLinks[i] = b.R.Id;
+            b.R.PartnerLinks[b.Index] = r.Id;
+            links++;
+        }
         return links;
     }
 

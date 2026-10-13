@@ -12,7 +12,7 @@ namespace YouWillDate.Game;
 
 /// <summary>
 /// A linked city: pick a resident to see the people they are tied to (current
-/// partner, past partners, close friends), whether each is a resident or only a
+/// partner, dissolved involvements, close friends), whether each is a resident or only a
 /// record, and their starting-state relationship records. Click a resident in
 /// the list on the right to jump to them.
 /// </summary>
@@ -30,7 +30,7 @@ public partial class CityView : VBoxContainer
 
     LineEdit _seedInput = null!;
     SpinBox _sizeInput = null!;
-    CheckBox _linkedOnly = null!;
+    CheckBox _linkedOnly = null!, _severalOnly = null!;
     Tree _residents = null!;
     Label _title = null!;
     Button _backButton = null!, _openButton = null!;
@@ -110,6 +110,7 @@ public partial class CityView : VBoxContainer
         {
             int linked = r.PartnerLinks.Count(l => l is not null) + r.FriendLinks.Count(l => l is not null);
             if (_linkedOnly.ButtonPressed && linked == 0) continue;
+            if (_severalOnly.ButtonPressed && !r.AlongsideIndexes.Any()) continue;
             var row = _residents.CreateItem(root);
             row.SetText(0, $"#{r.Id}");
             row.SetText(1, Who(r));
@@ -181,17 +182,18 @@ public partial class CityView : VBoxContainer
             }
         }
 
-        var partners = Section($"Partners ({r.Pawn.Partners.Count})");
+        // Involvements never end: dissolved ones stay, their level draining toward 0 (attraction spec 8.3).
+        var partners = Section($"Involvements ({r.Pawn.Partners.Count})");
         for (int i = 0; i < r.Pawn.Partners.Count; i++)
         {
             var p = r.Pawn.Partners[i];
-            string span = $"ages {p.StartAge}–{(p.EndAge?.ToString(CultureInfo.InvariantCulture) ?? "now")}";
-            string ended = p.EndReason is null ? "" : $", ended: {Ui.Pretty(p.EndReason)}";
+            string dissolved = p.EndAge is int end ? $", dissolved at {end} ({Ui.Pretty(p.EndReason ?? "?")})" : "";
             string details = string.Create(CultureInfo.InvariantCulture,
-                $"{span}, {p.Sex}{(p.Married ? ", married" : "")}{ended}; standing {p.Status:+0.0;-0.0}, availability {p.Availability:0.00}");
-            Person(partners, p.Ended ? "past partner" : $"current ({r.Relationship})", r.PartnerLinks[i], details);
+                $"since age {p.StartAge}{dissolved}, {p.Sex}{(p.Married ? ", married" : "")}; standing {p.Status:+0.0;-0.0}, availability {p.Availability:0.00}");
+            string role = p.Ended ? "dissolved" : i == r.CurrentPartnerIndex ? "primary" : "alongside";
+            Person(partners, string.Create(CultureInfo.InvariantCulture, $"level {p.Level:0.00}, {role}"), r.PartnerLinks[i], details);
         }
-        if (r.Pawn.Partners.Count == 0) Person(partners, "none", null, "No relationships in the life history.");
+        if (r.Pawn.Partners.Count == 0) Person(partners, "none", null, "No involvements in the life history.");
 
         var friends = Section($"Close friends ({r.Friends.Count})");
         for (int i = 0; i < r.Friends.Count; i++)
@@ -217,7 +219,7 @@ public partial class CityView : VBoxContainer
             sb.AppendLine($"  last breakup {m:0} months ago");
         var grudges = state.Exes.Where(e => e.Grudge >= 0.01).ToList();
         foreach (var g in grudges)
-            sb.AppendLine($"  grudge {N(g.Grudge)} toward past partner {g.PartnerIndex + 1}" +
+            sb.AppendLine($"  grudge {N(g.Grudge)} toward partner {g.PartnerIndex + 1}" +
                           (g.Resident is int other ? $" (#{other})" : "") + $", ended: {Ui.Pretty(g.EndReason ?? "?")}");
 
         foreach (var rec in s.Of(r.Id))
@@ -288,6 +290,9 @@ public partial class CityView : VBoxContainer
         _linkedOnly = new CheckBox { Text = "Only residents with links", ButtonPressed = true };
         _linkedOnly.Toggled += _ => { if (_city is not null) FillResidents(); };
         bar.AddChild(_linkedOnly);
+        _severalOnly = new CheckBox { Text = "Only several involvements at once", TooltipText = "Residents with an involvement alongside their primary one" };
+        _severalOnly.Toggled += _ => { if (_city is not null) FillResidents(); };
+        bar.AddChild(_severalOnly);
 
         var split = new HSplitContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
         AddChild(split);

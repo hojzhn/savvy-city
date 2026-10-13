@@ -61,13 +61,16 @@ public static class PawnText
             }
             if (p.Partners.Count > 0)
             {
-                sb.AppendLine().AppendLine("Partners");
-                foreach (var partner in p.Partners)
-                    sb.AppendLine($"  {partner.StartAge}–{partner.EndAge?.ToString(CultureInfo.InvariantCulture) ?? "now"}"
+                sb.AppendLine().AppendLine("Involvements");
+                for (int i = 0; i < p.Partners.Count; i++)
+                {
+                    var partner = p.Partners[i];
+                    sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"  partner {i + 1}: level {partner.Level:0.00}, since age {partner.StartAge}")
+                        + (partner.EndAge is int end ? $", dissolved at {end} ({Pretty(partner.EndReason ?? "?")})" : "")
                         + (partner.Sex.Length > 0 ? $", {partner.Sex}" : "")
                         + string.Create(CultureInfo.InvariantCulture, $", {Math.Abs(partner.AgeGap):0} years {(partner.AgeGap >= 0 ? "older" : "younger")}")
-                        + (partner.Married ? ", married" : "")
-                        + (partner.EndReason is null ? "" : $", ended: {Pretty(partner.EndReason)}"));
+                        + (partner.Married ? ", married" : ""));
+                }
             }
         }
 

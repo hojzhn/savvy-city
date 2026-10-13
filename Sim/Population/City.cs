@@ -30,8 +30,33 @@ public sealed class Resident
     public string Relationship => Pawn.Facts.Cat("state.relationship") ?? "single";
     public int RelationshipYears => (int)(Pawn.Facts.Num("state.relationship_years") ?? 0);
     public int Children => (int)(Pawn.Facts.Num("state.children") ?? 0);
-    /// <summary>The ongoing relationship in the life history, if any.</summary>
-    public Partner? CurrentPartner => Pawn.Partners.Count > 0 && !Pawn.Partners[^1].Ended ? Pawn.Partners[^1] : null;
+    /// <summary>Index in Pawn.Partners of the primary involvement, or -1.</summary>
+    public int CurrentPartnerIndex => CurrentIndex(Pawn);
+    /// <summary>
+    /// The primary involvement: of those not dissolved, the most anchored (formalized,
+    /// then living together, then defined), then the longest. Others not dissolved run
+    /// alongside it; dissolved ones stay in Pawn.Partners, draining toward 0.
+    /// </summary>
+    public Partner? CurrentPartner => CurrentPartnerIndex is var i and >= 0 ? Pawn.Partners[i] : null;
+
+    internal static int CurrentIndex(Pawn pawn)
+    {
+        int best = -1, bestRank = -1;
+        for (int i = 0; i < pawn.Partners.Count; i++)
+        {
+            var p = pawn.Partners[i];
+            if (p.Ended) continue;
+            int rank = p.Fields.GetValueOrDefault("agreement") == "formalized" ? 3
+                : p.Fields.GetValueOrDefault("living_together") == "yes" ? 2
+                : p.Fields.GetValueOrDefault("agreement") == "defined" ? 1 : 0;
+            if (rank > bestRank) (best, bestRank) = (i, rank);
+        }
+        return best;
+    }
+
+    /// <summary>Indexes of involvements not dissolved besides the primary one.</summary>
+    public IEnumerable<int> AlongsideIndexes =>
+        Enumerable.Range(0, Pawn.Partners.Count).Where(i => !Pawn.Partners[i].Ended && i != CurrentPartnerIndex);
     public IReadOnlyList<Adult.FriendRecord> Friends => Pawn.Adult?.Friends ?? [];
 }
 
@@ -41,7 +66,8 @@ public sealed record Couple(int Id, int A, int B, string Status, int Years, int 
 /// <summary>People living together. Kind is the life simulation's current_household value.</summary>
 public sealed record Household(int Id, IReadOnlyList<int> Members, int Children, string Kind);
 
-public sealed record CityStats(int Generated, int Discarded, int DroppedUnmatched, int ExLinks, int FriendLinks);
+/// <summary>AlongsideLinks: pairs of involvements running alongside both residents' primary ones.</summary>
+public sealed record CityStats(int Generated, int Discarded, int DroppedUnmatched, int ExLinks, int FriendLinks, int AlongsideLinks);
 
 /// <summary>A city of linked pawns: real people on both ends of every current relationship.</summary>
 public sealed class City

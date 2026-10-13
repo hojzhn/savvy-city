@@ -98,7 +98,7 @@ public class LifeTests
             foreach (var partner in p.Partners)
                 if (partner.EndAge is int end) Assert.True(end >= partner.StartAge);
             bool inRelationship = p.Facts["state.relationship"] != "single";
-            Assert.Equal(inRelationship, p.Partners.Count > 0 && p.Partners[^1].EndAge is null);
+            Assert.Equal(inRelationship, p.Partners.Any(x => x.EndAge is null));
         }
     }
 
@@ -113,12 +113,20 @@ public class LifeTests
                 : open.Any(x => x.Fields["living_together"] == "yes") ? "cohabiting"
                 : open.Count > 0 ? "dating" : "single";
             Assert.Equal(expected, p.Facts["state.relationship"]);
-            Assert.Equal(open.Count, p.Facts.Num("state.involvements"));
+            // Involvements never end: dissolved ones stay, counted while their level is at least involved_at.
+            double involvedAt = Data.Life!.Involvement!.Level.InvolvedAt;
+            Assert.Equal(p.Partners.Count(x => x.Level >= involvedAt), p.Facts.Num("state.involvements"));
             // Counted at the end of each simulated year, including the current one.
             Assert.Equal(open.Count == 0 ? 0 : open.Max(x => x.Years(p.Age) + 1), p.Facts.Num("state.relationship_years"));
-            // Married partners are the formalized ones, and a formalized involvement lives together.
-            Assert.All(p.Partners, x => Assert.Equal(x.Fields["agreement"] == "formalized", x.Married));
-            Assert.All(p.Partners.Where(x => x.Married), x => Assert.Equal("yes", x.Fields["living_together"]));
+            // A dissolve removes the agreements; married partners are the ones ever formalized.
+            Assert.All(p.Partners.Where(x => x.Ended), x =>
+            {
+                Assert.Equal("none", x.Fields["agreement"]);
+                Assert.NotNull(x.WeeksSinceDissolved);
+                Assert.InRange(x.Level, 0, 0.8 * Math.Pow(0.9, x.WeeksSinceDissolved!.Value) + 1e-9);
+            });
+            Assert.All(open.Where(x => x.Married), x => Assert.Equal("formalized", x.Fields["agreement"]));
+            Assert.All(open, x => Assert.InRange(x.Level, 0.05, 1));
         }
         // Every life event about a partner names which one.
         Assert.All(Population.Value.Take(300).SelectMany(p => p.History).Where(e => e.ItemId is "marry" or "breakup" or "divorce"),
@@ -159,8 +167,15 @@ public class LifeTests
           - id: x
             type: event
             rate: { base: "0.5" }
-            effects: { end_involvement: true }
-        """, "end_involvement only works in per_involvement events")]
+            effects: { dissolve: true }
+        """, "dissolve only works in per_involvement events")]
+    [InlineData("""
+          - id: x
+            type: event
+            per_involvement: true
+            rate: { base: "0.5" }
+            effects: { set: { inv.dissolved: "yes" } }
+        """, "derived from the involvements")]
     [InlineData("""
           - id: x
             type: event
@@ -204,6 +219,50 @@ public class LifeTests
         Assert.Equal(open, p.Facts.Num("state.involvements"));
         Assert.Equal("together", p.Facts["state.relationship"]);
         Assert.Contains(p.Partners, x => x.Fields["agreement"] == "defined");
+    }
+
+    [Fact]
+    public void SomePawnsHoldSeveralInvolvementsAtOnce()
+    {
+        // 7.6: being involved lowers openness to someone new, but doesn't remove it.
+        var held = Population.Value.Select(p => p.Partners.Where(x => !x.Ended).ToList()).ToList();
+        double several = held.Count(h => h.Count >= 2) / (double)held.Count;
+        Assert.InRange(several, 0.01, 0.15);
+        foreach (var h in held)
+        {
+            Assert.True(h.Count(x => x.Fields["agreement"] == "formalized") <= 1);
+            Assert.True(h.Count(x => x.Fields["living_together"] == "yes") <= 1);
+        }
+    }
+
+    [Fact]
+    public void DissolvedInvolvementsStayAndDrain()
+    {
+        // Attraction spec 8.3: a dissolve removes the agreements; the pattern drains toward 0 and nothing ends.
+        var data = TestData.WithLife(InvolvementLife("""
+          - id: meet
+            type: event
+            from_age: 16
+            requires: { state.relationship: single }
+            rate: { base: "0.9" }
+            effects: { start_involvement: true }
+          - id: part
+            type: event
+            per_involvement: true
+            requires: { inv.years: ">=1" }
+            rate: { base: "0.9" }
+            effects: { dissolve: true }
+        """));
+        var p = new PawnGenerator(data).Generate(5);
+        Assert.True(p.Partners.Count > 3);
+        Assert.All(p.Partners.Where(x => x.Ended), x =>
+        {
+            Assert.Equal("part", x.EndReason);
+            Assert.InRange(x.Level, 0, Math.Pow(0.9, x.WeeksSinceDissolved!.Value) + 1e-9);
+        });
+        // Older dissolves have drained further.
+        var ended = p.Partners.Where(x => x.Ended).ToList();
+        Assert.True(ended[0].Level <= ended[^1].Level);
     }
 
     [Fact]

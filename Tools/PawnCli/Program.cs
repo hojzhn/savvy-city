@@ -79,7 +79,7 @@ void RunStats()
         var p = gen.Generate(s, options);
         foreach (var k in keys)
         {
-            string v = p.Facts.Cat(k) ?? "(missing)";
+            string v = p.Facts.Cat(k) ?? p.Facts.Num(k)?.ToString("0.##", CultureInfo.InvariantCulture) ?? "(missing)";
             counts[k][v] = counts[k].GetValueOrDefault(v) + 1;
         }
     }

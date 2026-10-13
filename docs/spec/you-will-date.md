@@ -574,7 +574,7 @@ The last step hands the pawns to the runtime systems in sections 7 and 8. It run
 
 **Linking.** Each pawn runs its own life simulation. The city then pairs pawns whose current relationships line up: the same status, each the sex the other's history says, and relationship lengths within a tolerance. More pawns are generated until most open slots are filled. A pawn whose partner can't be found leaves the city, so every current partner is a resident. Cohabiting and married couples share a household. Each past partner and close friend stays a record with a seed, unless a resident fits it, in which case the record links to that resident and the resident's matching record links back.
 
-**Relationships.** Each couple, each friendship between residents, and each recent breakup between residents becomes a relationship record (8.1).
+**Relationships.** Each couple, each friendship between residents, and each dissolved involvement between residents becomes a relationship record (8.1). An involvement never ends: a dissolve removes its agreements and its pattern drains toward the origin, so past partners stay records at or near 0.
 
 | Life history | Starting record |
 | ----- | ----- |
@@ -584,7 +584,7 @@ The last step hands the pawns to the runtime systems in sections 7 and 8. It run
 | Monogamy views | The agreements' exclusivity level |
 | Each side's starting satisfaction | Where P sits between the two sides' D: each side's gap is (1 − satisfaction) / sensitivity |
 | Swallowed tension over the years | Hidden resentment H, built week by week as in 8.3, then capped |
-| How it ended, for a recent breakup | A dissolved record with the pattern drained, and grudges |
+| A dissolved involvement | A dissolved record with the pattern drained to its level now, and grudges |
 
 Until the attraction engine exists, the size of each side's desire is provisional: it comes from starting satisfaction. The runtime recomputes D on its first tick.
 

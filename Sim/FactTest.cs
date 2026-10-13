@@ -26,11 +26,10 @@ static class FactTest
     static bool TestKey(Condition c, Facts facts, string key) =>
         c.IsNumeric ? c.TestNumeric(facts.Num(key)) : c.TestCategorical(facts.Cat(key));
 
-    /// <summary>"inv0.&lt;field&gt;", "inv1.&lt;field&gt;", ... for each ongoing involvement.</summary>
+    /// <summary>"inv0.&lt;field&gt;", "inv1.&lt;field&gt;", ... for every involvement, past and present.</summary>
     static IEnumerable<string> InvolvementKeys(string field, Facts facts)
     {
-        int count = (int)(facts.Num("state.involvements") ?? 0);
-        for (int i = 0; i < count; i++) yield return $"inv{i}.{field}";
+        for (int i = 0; facts.Contains($"inv{i}.years"); i++) yield return $"inv{i}.{field}";
     }
 
     /// <summary>Categorical values of a key; any_parent. gives both parents' values, any_inv. every ongoing involvement's.</summary>

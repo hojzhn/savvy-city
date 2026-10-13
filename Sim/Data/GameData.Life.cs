@@ -23,11 +23,11 @@ public sealed partial class GameData
         || key is "age" or "cal_year" or "stage";
 
     /// <summary>
-    /// Ids that can end a relationship: the outcomes of events that end an
-    /// involvement (or the event's own id when it has no outcomes).
+    /// Ids for how a relationship was dissolved: the outcomes of events that
+    /// dissolve an involvement (or the event's own id when it has no outcomes).
     /// </summary>
     public IReadOnlyCollection<string> EndReasons =>
-        Life?.Items.Where(i => i.PerInvolvement && (i.Effects.EndInvolvement || i.Outcomes.Any(o => o.Effects.EndInvolvement)))
+        Life?.Items.Where(i => i.PerInvolvement && (i.Effects.Dissolve || i.Outcomes.Any(o => o.Effects.Dissolve)))
             .SelectMany(i => i.Outcomes.Length > 0 ? i.Outcomes.Select(o => o.Id) : [i.Id]).ToHashSet() ?? [];
 
     /// <summary>A base rate for a calendar year: the place's override, else the latest eras.yaml entry that sets it.</summary>
@@ -98,7 +98,11 @@ public sealed partial class GameData
             var rules = CompileRules(inv.Label.Rules, "life.yaml: involvement label rule", new GroupDto { Name = "state" }, labelValues);
             if (rules.Length == 0 || rules[^1].When.Length > 0)
                 throw new DataException("life.yaml: involvement label needs rules, the last one without conditions (the fallback)");
-            involvement = new InvolvementTables { Fields = involvementFields, LabelValues = inv.Label.Values.ToArray(), LabelRules = rules };
+            involvement = new InvolvementTables
+            {
+                Fields = involvementFields, LabelValues = inv.Label.Values.ToArray(), LabelRules = rules,
+                Level = CheckLevel(inv.Level, involvementFields),
+            };
         }
 
         var items = f.Items.Select(d => CompileLifeItem(d, stages, channels)).ToArray();
@@ -127,7 +131,7 @@ public sealed partial class GameData
         var fields = inv.Fields.Select(x =>
         {
             if (!LifeId.IsMatch(x.Id)) throw new DataException($"{where} field '{x.Id}': ids use a-z, 0-9 and _");
-            if (x.Id == "years") throw new DataException($"{where}: 'years' is built in");
+            if (x.Id is "years" or "level" or "dissolved") throw new DataException($"{where}: '{x.Id}' is built in");
             if (x.Values.Count == 0) throw new DataException($"{where} field '{x.Id}': needs values");
             if (x.Values.Distinct().Count() != x.Values.Count) throw new DataException($"{where} field '{x.Id}': duplicate values");
             string initial = x.Initial ?? x.Values[0];
@@ -140,10 +144,31 @@ public sealed partial class GameData
 
         foreach (var x in fields) _schema[$"inv.{x.Id}"] = x.Values.ToHashSet();
         _schema["inv.years"] = null;
+        _schema["inv.level"] = null;
+        _schema["inv.dissolved"] = ["no", "yes"];
         _schema["state.relationship"] = inv.Label.Values.ToHashSet();
         _schema["state.involvements"] = null;
         _schema["state.relationship_years"] = null;
         return fields;
+    }
+
+    static InvolvementLevelDto CheckLevel(InvolvementLevelDto level, InvolvementField[] fields)
+    {
+        const string where = "life.yaml: involvement level";
+        if (level.Field is not null)
+        {
+            var field = fields.FirstOrDefault(f => f.Id == level.Field)
+                ?? throw new DataException($"{where}: field '{level.Field}' is not an involvement field");
+            foreach (var (value, at) in level.SettlesAt)
+            {
+                if (!field.Values.Contains(value)) throw new DataException($"{where}: '{value}' is not a value of {field.Id}");
+                if (at is < 0 or > 1) throw new DataException($"{where}: settles_at for '{value}' must be between 0 and 1");
+            }
+        }
+        else if (level.SettlesAt.Count > 0) throw new DataException($"{where}: settles_at needs a field");
+        if (level.Approach is < 0 or > 1 || level.DrainPerWeek is < 0 or > 1 || level.InvolvedAt is < 0 or > 1)
+            throw new DataException($"{where}: approach, drain_per_week and involved_at must be between 0 and 1");
+        return level;
     }
 
     /// <summary>
@@ -188,8 +213,8 @@ public sealed partial class GameData
             throw new DataException($"{where}: start_involvement goes in the event's own effects, not an outcome's");
         if (item.PerInvolvement && starts)
             throw new DataException($"{where}: a per_involvement event can't start another involvement");
-        if (!item.PerInvolvement && effects.Any(e => e.EndInvolvement))
-            throw new DataException($"{where}: end_involvement only works in per_involvement events");
+        if (!item.PerInvolvement && effects.Any(e => e.Dissolve))
+            throw new DataException($"{where}: dissolve only works in per_involvement events");
         foreach (var e in effects)
             if (!item.PerInvolvement && !starts && e.Set.FirstOrDefault(s => s.Key.StartsWith("inv.")) is { Key: not null } set)
                 throw new DataException($"{where}: sets '{set.Key}', but has no involvement; use per_involvement or start_involvement");
@@ -517,7 +542,8 @@ public sealed partial class GameData
     {
         if (e is null) return Effects.None;
 
-        bool Derived(string key) => LifeSource?.Involvement is not null && key.StartsWith("state.") && InvolvementState.Contains(key[6..]);
+        bool Derived(string key) => LifeSource?.Involvement is not null
+            && ((key.StartsWith("state.") && InvolvementState.Contains(key[6..])) || key is "inv.dissolved" or "inv.level" or "inv.years");
         string NumericState(string key)
         {
             if (!key.StartsWith("state.") || !_schema.TryGetValue(key, out var a) || a is not null || Derived(key))
@@ -551,7 +577,7 @@ public sealed partial class GameData
                 ? (kv.Key, kv.Value)
                 : throw new DataException($"{where}: unknown channel '{kv.Key}'; channels: {string.Join(", ", channels)}")).ToArray(),
             StartInvolvement = e.StartInvolvement,
-            EndInvolvement = e.EndInvolvement,
+            Dissolve = e.Dissolve,
         };
     }
 

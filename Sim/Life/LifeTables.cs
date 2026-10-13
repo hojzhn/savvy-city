@@ -47,7 +47,7 @@ public sealed class Effects
     public string[] RecordFirstAge { get; init; } = [];
     public (string Channel, double Delta)[] Channels { get; init; } = [];
     public bool StartInvolvement { get; init; }
-    public bool EndInvolvement { get; init; }
+    public bool Dissolve { get; init; }
 }
 
 public sealed record InvolvementField(string Id, string[] Values, string Initial);
@@ -58,6 +58,7 @@ public sealed class InvolvementTables
     public required InvolvementField[] Fields { get; init; }
     public required string[] LabelValues { get; init; }
     public required DeriveRule[] LabelRules { get; init; }
+    public required InvolvementLevelDto Level { get; init; }
 }
 
 /// <summary>Fork option, event outcome, or reading.</summary>

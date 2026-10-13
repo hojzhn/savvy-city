@@ -62,7 +62,7 @@ public sealed partial class GameData
         var c = f.City;
         if (c.YearsTolerance < 0 || c.MaxCost < 0 || c.OverflowFactor < 0)
             throw new DataException($"{file}: city years_tolerance, max_cost and overflow_factor can't be negative");
-        if (c.ExLinkChance is < 0 or > 1 || c.FriendLinkChance is < 0 or > 1)
+        if (c.ExLinkChance is < 0 or > 1 || c.FriendLinkChance is < 0 or > 1 || c.AlongsideLinkChance is < 0 or > 1)
             throw new DataException($"{file}: city link chances must be between 0 and 1");
 
         var s = f.Start;

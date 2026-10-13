@@ -87,18 +87,22 @@ public sealed partial class TraitCatalog
                 HowDetermined = "Derived, never stored: the label for the pawn's ongoing involvements, from the first matching label rule in " +
                                 "life.yaml (" + string.Join("; ", inv.LabelRules.Select(r =>
                                     r.When.Length == 0 ? $"otherwise {r.Value}" : $"{string.Join(" and ", r.When.Select(c => c.Text))} → {r.Value}")) +
-                                "). Re-derived whenever an involvement starts, changes or ends.",
+                                "). Re-derived whenever an involvement starts, changes or is dissolved.",
             });
+            var level = inv.Level;
+            string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
             list.Add(new TraitInfo
             {
                 Key = "state.involvements", Section = "Relationships", Label = "involvements", Kind = TraitKind.Life,
-                FactKeys = ["state.involvements"], HowDetermined = "Built in: how many involvements are ongoing.",
+                FactKeys = ["state.involvements"],
+                HowDetermined = $"Built in: how many involvements, past or present, are at level {N(level.InvolvedAt)} or above " +
+                                "(a dissolved one counts while it drains).",
             });
             list.Add(new TraitInfo
             {
                 Key = "state.relationship_years", Section = "Relationships", Label = "relationship years", Kind = TraitKind.Life,
                 FactKeys = ["state.relationship_years"],
-                HowDetermined = "Built in: years of the longest ongoing involvement (0 without one), counted at the end of each year.",
+                HowDetermined = "Built in: years of the longest involvement not dissolved (0 without one), counted at the end of each year.",
             });
             foreach (var field in inv.Fields)
                 list.Add(new TraitInfo
@@ -106,12 +110,28 @@ public sealed partial class TraitCatalog
                     Key = $"inv.{field.Id}", Section = "Relationships", Label = $"involvement {field.Id}", Kind = TraitKind.Life,
                     FactKeys = [], Values = field.Values,
                     HowDetermined = $"One per involvement, starting as '{field.Initial}'. Per-involvement events read and set it as inv.{field.Id}; " +
-                                    $"other rules read any_inv.{field.Id} (true if any ongoing involvement matches)." + ChangedBy($"inv.{field.Id}"),
+                                    $"other rules read any_inv.{field.Id} (true if any involvement, past or present, matches)." + ChangedBy($"inv.{field.Id}"),
                 });
             list.Add(new TraitInfo
             {
                 Key = "inv.years", Section = "Relationships", Label = "involvement years", Kind = TraitKind.Life, FactKeys = [],
-                HowDetermined = "Built in: years since the involvement started, counted at the end of each year.",
+                HowDetermined = "Built in: years together, counted at the end of each year until the involvement is dissolved.",
+            });
+            list.Add(new TraitInfo
+            {
+                Key = "inv.level", Section = "Relationships", Label = "involvement level", Kind = TraitKind.Life, FactKeys = [],
+                HowDetermined = "Built in (attraction spec 8.3, coarsely): how involved the two are, 0–1. " +
+                                (level.Field is { } f
+                                    ? $"While it holds, it closes {N(level.Approach)} of the gap each year to where its {f} anchors it (" +
+                                      string.Join(", ", level.SettlesAt.Select(kv => $"{kv.Key} {N(kv.Value)}")) + "). "
+                                    : "") +
+                                $"After a dissolve it drains by {N(level.DrainPerWeek)} a week toward 0, and the involvement stays.",
+            });
+            list.Add(new TraitInfo
+            {
+                Key = "inv.dissolved", Section = "Relationships", Label = "involvement dissolved", Kind = TraitKind.Life, FactKeys = [],
+                Values = ["no", "yes"],
+                HowDetermined = "Built in: 'yes' once a dissolve (8.3) removed its agreements. It never ends; its level drains toward 0.",
             });
         }
 

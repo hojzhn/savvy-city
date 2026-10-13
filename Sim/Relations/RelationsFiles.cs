@@ -103,6 +103,8 @@ public sealed class CityDto
     public double OverflowFactor { get; set; } = 3;
     /// <summary>Chance a past partner who fits a resident is that resident.</summary>
     public double ExLinkChance { get; set; } = 0.5;
+    /// <summary>Chance an involvement running alongside a pawn's primary one is with a resident who fits.</summary>
+    public double AlongsideLinkChance { get; set; } = 0.6;
     /// <summary>Chance a close friend who fits a resident is that resident.</summary>
     public double FriendLinkChance { get; set; } = 0.4;
     /// <summary>Largest age gap between friends, by friend source (others use default_friend_age_gap).</summary>
@@ -143,8 +145,6 @@ public sealed class StartDto
     public double PowerScale { get; set; } = 0.5;
     /// <summary>A friendship's desired pattern: |D| = closeness × this.</summary>
     public double FriendDesire { get; set; } = 0.3;
-    /// <summary>Breakups with resident exes this recent keep a dissolved relationship record.</summary>
-    public double RecentBreakupYears { get; set; } = 2;
     /// <summary>Harm and blame by how a relationship ended (8.5 grudge = harm × blame).</summary>
     public Dictionary<string, double> Harm { get; set; } = new();
     public Dictionary<string, double> Blame { get; set; } = new();

@@ -33,12 +33,18 @@ public sealed class HistoryEntry
 }
 
 /// <summary>
-/// One past or current partner, built from relationship-tagged history entries.
-/// Partners are records, not pawns: the seed lets the game promote one to a full
-/// pawn later, and the city links a partner to a resident when one fits.
+/// One involvement in the life history: every partner the pawn was ever involved
+/// with. An involvement never ends; EndAge is when it was dissolved (its agreements
+/// removed), after which its level drains toward 0. Partners are records, not pawns:
+/// the seed lets the game promote one to a full pawn later, and the city links a
+/// partner to a resident when one fits.
 /// </summary>
 public sealed record Partner(int StartAge, int? EndAge, string? EndReason, bool Married)
 {
+    /// <summary>How involved the two are now, 0–1 (attraction spec 8.3, coarsely). Dissolved ones drain toward 0.</summary>
+    public double Level { get; init; } = 1;
+    /// <summary>Weeks from the dissolve to now; null while the involvement holds.</summary>
+    public double? WeeksSinceDissolved { get; init; }
     /// <summary>The involvement's fields (inv.&lt;field&gt;) when it ended, or now.</summary>
     public IReadOnlyDictionary<string, string> Fields { get; init; } = new Dictionary<string, string>();
     /// <summary>"male" or "female", from the involvement's partner_sex field.</summary>
@@ -51,6 +57,7 @@ public sealed record Partner(int StartAge, int? EndAge, string? EndReason, bool 
     public double Availability { get; init; } = 0.5;
     /// <summary>Derived seed for promoting this partner to a full pawn.</summary>
     public ulong Seed { get; init; }
+    /// <summary>Dissolved: its agreements are gone and it is draining (or has drained) toward 0.</summary>
     public bool Ended => EndAge is not null;
     public int Years(int currentAge) => Math.Max(0, (EndAge ?? currentAge) - StartAge);
 }
@@ -83,23 +90,32 @@ public sealed class LifeSimulator
     readonly Dictionary<string, string> _lastChoice = new();
     readonly Dictionary<string, HashSet<int>> _scheduled = new();
 
-    /// <summary>A relationship of any kind: its own fields, no label (the label is derived).</summary>
+    /// <summary>
+    /// A relationship of any kind: its own fields and level, no label (the label is
+    /// derived). It never ends: a dissolve removes its agreements and its level drains.
+    /// </summary>
     sealed class Involvement
     {
         public required int Index { get; init; }
         public required int StartAge { get; init; }
-        public int? EndAge { get; set; }
+        public int? DissolvedAge { get; set; }
+        /// <summary>Week of the year (0–51) the dissolve happened.</summary>
+        public int DissolvedWeek { get; set; }
+        public double LevelAtDissolve { get; set; }
         public string? EndReason { get; set; }
+        /// <summary>Years together, until the dissolve.</summary>
         public int Years { get; set; }
+        public double Level { get; set; }
+        /// <summary>The agreement field was formalized at some point (a marriage), even after a dissolve removed it.</summary>
+        public bool Formalized { get; set; }
         public required Dictionary<string, string> Fields { get; init; }
         public Dictionary<string, int> LastWriter { get; } = new();
-        public bool Ended => EndAge is not null;
+        public bool Dissolved => DissolvedAge is not null;
     }
 
     readonly List<Involvement> _involvements = new();
     /// <summary>The involvement inv.&lt;field&gt; refers to right now, if any.</summary>
     Involvement? _current;
-    int _synced;
     int _age;
     Stage _stage = null!;
     LocationPeriod _place = null!;
@@ -152,8 +168,8 @@ public sealed class LifeSimulator
                 if (!IsScheduled(item)) continue;
                 if (item.PerInvolvement)
                 {
-                    // Once for each involvement ongoing when the item's turn comes.
-                    foreach (var inv in _involvements.Where(i => !i.Ended).ToList())
+                    // Once for each involvement not dissolved when the item's turn comes.
+                    foreach (var inv in _involvements.Where(i => !i.Dissolved).ToList())
                     {
                         Enter(inv);
                         RollEvent(item);
@@ -169,10 +185,38 @@ public sealed class LifeSimulator
                 }
             }
 
-            // Involvement years are counted at the end of the year, after its events.
-            foreach (var inv in _involvements.Where(i => !i.Ended)) inv.Years++;
-            if (_t.Involvement is not null) Relabel(null);
+            // Involvements move at the end of the year, after its events.
+            if (_t.Involvement is not null)
+            {
+                foreach (var inv in _involvements) Advance(inv);
+                Relabel(null);
+            }
         }
+    }
+
+    /// <summary>
+    /// One year of an involvement. While it holds, it counts a year together and its
+    /// level moves toward where its agreements anchor it. After a dissolve, the level
+    /// drains week by week from where it was (8.3), toward 0.
+    /// </summary>
+    void Advance(Involvement inv)
+    {
+        var level = _t.Involvement!.Level;
+        if (!inv.Dissolved)
+        {
+            inv.Years++;
+            inv.Level += level.Approach * (SettlesAt(inv) - inv.Level);
+            return;
+        }
+        double weeks = (_age - inv.DissolvedAge!.Value) * 52 + (52 - inv.DissolvedWeek);
+        inv.Level = inv.LevelAtDissolve * Math.Pow(1 - level.DrainPerWeek, weeks);
+    }
+
+    double SettlesAt(Involvement inv)
+    {
+        var level = _t.Involvement!.Level;
+        return level.Field is { } field && inv.Fields.TryGetValue(field, out var value)
+            ? level.SettlesAt.GetValueOrDefault(value, 1) : 1;
     }
 
     // --------------------------------------------------------- involvements
@@ -183,6 +227,8 @@ public sealed class LifeSimulator
         _current = inv;
         foreach (var (field, value) in inv.Fields) _f.Set($"inv.{field}", value);
         _f.Set("inv.years", inv.Years);
+        _f.Set("inv.level", inv.Level);
+        _f.Set("inv.dissolved", "no");
         foreach (var field in inv.Fields.Keys)
         {
             if (inv.LastWriter.TryGetValue(field, out int w)) _lastWriter[$"inv.{field}"] = w;
@@ -199,6 +245,7 @@ public sealed class LifeSimulator
             inv.Fields[field] = _f.Cat($"inv.{field}") ?? inv.Fields[field];
             if (_lastWriter.TryGetValue($"inv.{field}", out int w)) inv.LastWriter[field] = w;
         }
+        inv.Formalized |= inv.Fields.GetValueOrDefault("agreement") == "formalized";
     }
 
     /// <summary>Store the current involvement, clear inv.&lt;field&gt;, and re-derive the label.</summary>
@@ -211,6 +258,8 @@ public sealed class LifeSimulator
             _lastWriter.Remove($"inv.{field}");
         }
         _f.Remove("inv.years");
+        _f.Remove("inv.level");
+        _f.Remove("inv.dissolved");
         _current = null;
         Relabel(entry);
     }
@@ -223,31 +272,37 @@ public sealed class LifeSimulator
             Index = _involvements.Count, StartAge = _age,
             Fields = _t.Involvement!.Fields.ToDictionary(f => f.Id, f => f.Initial),
         };
+        inv.Level = SettlesAt(inv);
         _involvements.Add(inv);
         Enter(inv);
     }
 
+    /// <summary>8.3 Dissolve: the agreements go, the level starts draining from where it is this week. The involvement stays.</summary>
+    void Dissolve(Involvement inv)
+    {
+        inv.DissolvedAge = _age;
+        inv.DissolvedWeek = Rng.For(_seed, "life", "dissolve", inv.Index.ToString(CultureInfo.InvariantCulture)).NextInt(0, 52);
+        inv.LevelAtDissolve = inv.Level;
+    }
+
     /// <summary>
-    /// Write each ongoing involvement as inv0.*, inv1.*, ... (read by any_inv.), the
-    /// count and longest length, and derive state.relationship from the label rules.
+    /// Write every involvement, past and present, as inv0.*, inv1.*, ... (read by
+    /// any_inv.), how many are at or above involved_at, the longest undissolved one,
+    /// and derive state.relationship from the label rules.
     /// </summary>
     void Relabel(int? entry)
     {
         var inv = _t.Involvement!;
-        var active = _involvements.Where(i => !i.Ended).ToList();
-        for (int i = 0; i < _synced; i++)
+        foreach (var i in _involvements)
         {
-            foreach (var field in inv.Fields) _f.Remove($"inv{i}.{field.Id}");
-            _f.Remove($"inv{i}.years");
+            foreach (var (field, value) in i.Fields) _f.Set($"inv{i.Index}.{field}", value);
+            _f.Set($"inv{i.Index}.years", i.Years);
+            _f.Set($"inv{i.Index}.level", i.Level);
+            _f.Set($"inv{i.Index}.dissolved", i.Dissolved ? "yes" : "no");
         }
-        for (int i = 0; i < active.Count; i++)
-        {
-            foreach (var (field, value) in active[i].Fields) _f.Set($"inv{i}.{field}", value);
-            _f.Set($"inv{i}.years", active[i].Years);
-        }
-        _synced = active.Count;
-        _f.Set("state.involvements", active.Count);
-        _f.Set("state.relationship_years", active.Count == 0 ? 0 : active.Max(i => i.Years));
+        var holding = _involvements.Where(i => !i.Dissolved).ToList();
+        _f.Set("state.involvements", _involvements.Count(i => i.Level >= inv.Level.InvolvedAt));
+        _f.Set("state.relationship_years", holding.Count == 0 ? 0 : holding.Max(i => i.Years));
 
         string? old = _f.Cat("state.relationship");
         string label = inv.LabelRules.First(r => r.When.All(c => FactTest.Test(c, _f))).Value;
@@ -453,7 +508,7 @@ public sealed class LifeSimulator
         var involvement = _current;
         if (involvement is not null)
         {
-            if (involvement.Ended) involvement.EndReason ??= outcome?.Id ?? item.Id;
+            if (involvement.Dissolved) involvement.EndReason ??= outcome?.Id ?? item.Id;
             Store();
             Relabel(id);
         }
@@ -633,10 +688,10 @@ public sealed class LifeSimulator
             channels[channel] = channels.GetValueOrDefault(channel) + delta;
             _lastWriter[key] = entryId;
         }
-        if (e.EndInvolvement && _current is { Ended: false } inv)
+        if (e.Dissolve && _current is { Dissolved: false } inv)
         {
-            inv.EndAge = _age;
-            changes.Add(("involvement", "ended"));
+            Dissolve(inv);
+            changes.Add(("involvement", "dissolved"));
         }
         if (moved) RefreshPlace();
     }
@@ -702,9 +757,11 @@ public sealed class LifeSimulator
     {
         if (_t.Involvement is not null)
             return _involvements.Select(inv => DescribePartner(
-                new Partner(inv.StartAge, inv.EndAge, inv.EndReason, inv.Fields.GetValueOrDefault("agreement") == "formalized")
+                new Partner(inv.StartAge, inv.DissolvedAge, inv.EndReason, inv.Formalized)
                 {
                     Fields = new Dictionary<string, string>(inv.Fields),
+                    Level = inv.Level,
+                    WeeksSinceDissolved = inv.Dissolved ? (_currentAge - inv.DissolvedAge!.Value) * 52 + (52 - inv.DissolvedWeek) : null,
                 },
                 inv.Index, inv.Fields.GetValueOrDefault("partner_sex") == "same")).ToList();
 

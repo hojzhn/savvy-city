@@ -66,19 +66,22 @@ impact score, and the ids of the earlier entries that caused it. Relationship
 tags on entries build the pawn's partner list.
 
 **Involvements.** Relationships are involvements, not a label (attraction spec
-8.1). A pawn can have several at once. Each has its own fields (agreement,
-living together, partner sex), and events marked `per_involvement` roll once a
-year for each ongoing involvement, reading and setting that involvement's
-`inv.*` fields. `state.relationship` (single, dating, cohabiting, married) is
-derived from the involvements by data rules whenever one changes; nothing sets
-it directly. Ongoing involvements are written as `inv0.*`, `inv1.*`, ..., which
-`any_inv.` conditions read. History entries about a partner carry the
-involvement's index.
+8.1), and they never end. A pawn can have several at once. Each has its own
+fields (agreement, living together, partner sex) and a level, 0–1, standing in
+for the size of the pattern. Events marked `per_involvement` roll once a year
+for each involvement not yet dissolved, reading and setting that involvement's
+`inv.*` fields. While it holds, the level settles toward where its agreement
+anchors it; a dissolve (8.3) removes the agreements and the level drains by 10%
+a week from then on, so past partners stay involvements at or near 0.
+`state.relationship` (single, dating, cohabiting, married) is derived from the
+involvements by data rules whenever one changes; nothing sets it directly.
+Every involvement is written as `inv0.*`, `inv1.*`, ..., which `any_inv.`
+conditions read. History entries about a partner carry the involvement's index.
 
-At the end, each involvement becomes a record (`Partner`): its fields, how it
-ended, sex, age gap, standing, availability, and a derived seed for promoting
-the partner to a full pawn. The attributes come from `relationships.yaml`
-`past_partners`.
+At the end, each involvement becomes a record (`Partner`): its fields, level
+and weeks since it was dissolved, how it was dissolved, sex, age gap, standing,
+availability, and a derived seed for promoting the partner to a full pawn. The
+attributes come from `relationships.yaml` `past_partners`.
 
 ### 3. Adult traits (spec section 6)
 
@@ -134,7 +137,7 @@ world seed ─▶ World (M, T, W, Q, readouts) ─▶ pawns ─▶ couples ─�
 5. **Starting state (spec section 9).**
    [StartingState.cs](../Sim/Relations/StartingState.cs) builds the runtime's
    records: a relationship record (8.1) for each couple, linked friendship, and
-   recent breakup between residents; each pawn's mood, threat, grudges and goal
+   dissolved involvement between residents; each pawn's mood, threat, grudges and goal
    pressure; and what each pawn knows about the people it has a record with.
    Derived values (tendencies, readiness, dissatisfaction) are computed when
    read, never stored.
@@ -152,7 +155,7 @@ number, stored in the pawn's `Facts`. Rules in the data files read facts by key.
 | `mother.`, `father.`, `parents.same.` | Starting point | `mother.education` |
 | `household.`, `surroundings.`, `climate.` | Starting point | `household.wealth` |
 | `age`, `cal_year`, `stage`, `place.` | Life | where and when the pawn is, during the simulation and at the end |
-| `inv.`, `any_inv.`, `inv0.` | Life | the involvement a per-involvement event is about; any ongoing involvement; each ongoing involvement at the end |
+| `inv.`, `any_inv.`, `inv0.` | Life | the involvement a per-involvement event is about; any involvement, past or present; each involvement at the end |
 | `state.` | Life | `state.career`, `state.relationship`, `state.children` |
 | `life.` | Life | `life.parental_divorce` = never / once / ...; `life.after_high_school` = university |
 | `channel.` | Life | raw channel sums |

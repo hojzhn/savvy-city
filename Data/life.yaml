@@ -45,17 +45,21 @@
 # as context.*), state.location, state.lives_in_current_city, channel.*.
 #
 # Involvements (relationships). A pawn can be involved with several people at
-# once. Each involvement has its own fields, read and set as inv.<field> by
-# events with per_involvement: true (rolled once a year for each ongoing
-# involvement); inv.years is built in. Elsewhere, any_inv.<field> holds if any
-# ongoing involvement matches. Effects: start_involvement (in an event's own
-# effects) starts one, and inv.<field> sets in the same event apply to it;
-# end_involvement ends the current one, and the outcome id is how it ended.
-# Relationship labels are not stored: state.relationship is derived from the
-# involvements by the label rules, every time one changes. Also built in:
-# state.involvements (how many are ongoing) and state.relationship_years (the
-# longest ongoing one, in years). The partner list reads the agreement and
-# partner_sex fields (formalized means married; same means same-sex).
+# once, and an involvement never ends. Each has its own fields, read and set as
+# inv.<field> by events with per_involvement: true (rolled once a year for each
+# involvement not dissolved). Built in: inv.years (years together), inv.level
+# (how involved, 0-1) and inv.dissolved. Elsewhere, any_inv.<field> holds if any
+# involvement, past or present, matches. Effects: start_involvement (in an
+# event's own effects) starts one, and inv.<field> sets in the same event apply
+# to it; dissolve (attraction spec 8.3) removes nothing but the agreements: the
+# level then drains week by week toward 0, and the outcome id is how it was
+# dissolved. While an involvement holds, its level settles toward settles_at
+# for its agreement. Relationship labels are not stored: state.relationship is
+# derived from the involvements by the label rules, every time one changes.
+# Also built in: state.involvements (how many are at or above involved_at) and
+# state.relationship_years (the longest undissolved one, in years). The partner
+# list reads the agreement and partner_sex fields (ever formalized means
+# married; same means same-sex).
 #
 # Use `note:` fields rather than comments below this header: the Traits editor
 # rewrites this file when it saves, keeping this header but not comments.
@@ -91,9 +95,16 @@ involvement:
         value: married
       - when: { any_inv.living_together: "yes" }
         value: cohabiting
-      - when: { state.involvements: ">=1" }
+      - when: { any_inv.dissolved: "no" }
         value: dating
       - value: single
+  level:
+    note: Attraction spec 8.3, coarsely. An involvement settles where its agreements anchor it, and drains by 10% a week after a dissolve. PLACEHOLDER levels.
+    field: agreement
+    settles_at: { none: 0.3, defined: 0.6, formalized: 0.8 }
+    approach: 0.5
+    drain_per_week: 0.1
+    involved_at: 0.05
 
 items:
 
@@ -863,10 +874,9 @@ items:
     valence: positive
 
   - id: start_dating
-    note: Starts an involvement, with no agreement yet. Only when the pawn has none; overlapping involvements come later.
+    note: Starts an involvement, with no agreement yet. Earlier ones stay, held or draining toward 0, so a pawn can be involved with several people at once.
     type: event
     from_age: 14
-    requires: { state.involvements: "0" }
     rate:
       base: "0.3"
       weights:
@@ -881,6 +891,18 @@ items:
           add: -1.2
         - when: { age: ">=40" }
           add: -0.4
+        - note: Attraction spec 7.6, openness to others. Already involved with someone, a pawn is less open to anyone new. PLACEHOLDER size.
+          when: { any_inv.dissolved: "no" }
+          add: -1.2
+        - note: 7.6, an agreement (exclusive, unless the runtime says otherwise) lowers openness further. PLACEHOLDER size.
+          when: { any_inv.agreement: [defined, formalized] }
+          add: -1.0
+        - note: 7.6, a formalized agreement lowers it most. PLACEHOLDER size.
+          when: { any_inv.agreement: formalized }
+          add: -0.6
+        - note: Taking chances on someone new while involved (low self-control, high reward drive). PLACEHOLDER size.
+          when: { any_inv.dissolved: "no", pawn.reward_drive: ">=0.7", pawn.self_control: "<=0.3" }
+          add: 1.0
     outcomes:
       - id: opposite_sex
         note: Most bisexual people with a partner have an opposite-sex partner (PLACEHOLDER weight, about 4 in 5).
@@ -921,6 +943,10 @@ items:
         any_parent.practice: { devout: -0.8, strict: -1.0 }
         place.norms_sex: { restrictive: -1.0, permissive: 0.3 }
         pawn.affiliation: 0.3
+      mods:
+        - note: Already living with someone else (effectively never).
+          when: { any_inv.living_together: "yes" }
+          add: -30.0
     effects:
       set: { inv.living_together: "yes", inv.agreement: defined, state.left_home: "yes" }
       record_first_age: [state.age_left_home]
@@ -947,6 +973,12 @@ items:
         - note: Same-sex marriage became legal in New York in 2011. PLACEHOLDER until the law is a location table.
           when: { inv.partner_sex: same, cal_year: "<2011" }
           add: -4.0
+        - note: Already married to, or living with, someone else (effectively never).
+          when: { any_inv.living_together: "yes", inv.living_together: "no" }
+          add: -30.0
+        - note: Already married to someone else (effectively never).
+          when: { any_inv.agreement: formalized }
+          add: -30.0
     effects:
       set: { inv.agreement: formalized, inv.living_together: "yes", state.left_home: "yes" }
       record_first_age: [state.age_left_home]
@@ -979,6 +1011,9 @@ items:
       mods:
         - when: { inv.years: ">=3" }
           add: -0.6
+        - note: An involvement alongside one the pawn lives in competes with it for time (8.4 time budget). PLACEHOLDER size.
+          when: { inv.living_together: "no", any_inv.living_together: "yes" }
+          add: 1.0
     outcomes:
       - id: drifted_apart
         weight: 40
@@ -1001,7 +1036,8 @@ items:
       - id: other
         weight: 7
     effects:
-      end_involvement: true
+      dissolve: true
+      set: { inv.agreement: none, inv.living_together: "no" }
       channels: { rupture: 0.4 }
     readings:
       - id: people_leave
@@ -1041,7 +1077,8 @@ items:
       - id: money
         weight: 15
     effects:
-      end_involvement: true
+      dissolve: true
+      set: { inv.agreement: none, inv.living_together: "no" }
       channels: { rupture: 0.8 }
     readings:
       - id: failure
