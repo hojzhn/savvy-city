@@ -105,9 +105,9 @@ public sealed partial class GameData
 
     /// <summary>Schema entry for a fact key: "mother.education" maps to "parent.education".</summary>
     public static string SchemaKey(string factKey) =>
-        factKey.StartsWith("mother.") || factKey.StartsWith("father.")
-            ? "parent." + factKey[(factKey.IndexOf('.') + 1)..]
-            : factKey;
+        factKey.StartsWith("mother.") || factKey.StartsWith("father.") ? "parent." + factKey[(factKey.IndexOf('.') + 1)..]
+        : InvolvementKey.IsMatch(factKey) ? "inv." + factKey[(factKey.IndexOf('.') + 1)..]
+        : factKey;
 
     /// <summary>
     /// Schema entry a condition key reads: "self.x", "mother.x", "father.x" and
@@ -118,6 +118,7 @@ public sealed partial class GameData
         foreach (var prefix in new[] { "self.", "mother.", "father.", "any_parent." })
             if (conditionKey.StartsWith(prefix))
                 return "parent." + conditionKey[prefix.Length..];
+        if (conditionKey.StartsWith("any_inv.")) return "inv." + conditionKey["any_inv.".Length..];
         return conditionKey;
     }
 
@@ -448,6 +449,7 @@ public sealed partial class GameData
             return perParent ? $"parent.{r}" : throw new DataException($"{where}: 'self.' only works inside a per-parent group");
         if (Has(key, "mother.", out r) || Has(key, "father.", out r) || Has(key, "any_parent.", out r))
             return !perParent ? $"parent.{r}" : throw new DataException($"{where}: use 'self.' inside a per-parent group");
+        if (Has(key, "any_inv.", out r)) return $"inv.{r}";
         return key;
     }
 }

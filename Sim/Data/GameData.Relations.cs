@@ -22,11 +22,6 @@ public sealed partial class GameData
     /// </summary>
     public ProfileNorms ProfileNorms => _profileNorms?.Value ?? throw new InvalidOperationException("no aura.yaml loaded");
 
-    /// <summary>Ids that can end a relationship: life outcomes of relationship_end events, plus "overlap".</summary>
-    public IReadOnlyCollection<string> EndReasons =>
-        Life?.Items.Where(i => i.Tags.Contains("relationship_end")).SelectMany(i => i.Outcomes.Select(o => o.Id))
-            .Append("overlap").ToHashSet() ?? [];
-
     NoisyFormula CompileFormula(FormulaDto f, string where)
     {
         if (f.Sigma < 0) throw new DataException($"{where}: sigma can't be negative");

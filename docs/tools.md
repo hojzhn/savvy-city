@@ -64,6 +64,24 @@ traits.
 * Life and adult traits are shown read-only; edit them in `life.yaml` and
   `adult.yaml` and the tab reloads.
 
+### City tab
+
+A linked city (see [architecture.md](architecture.md#the-city)).
+
+* **World seed and Residents,** then Generate. The first city after a data
+  load also calibrates the profile vector, so it takes a few seconds more. The
+  city rebuilds when the data reloads.
+* **Resident list** on the left; "Only residents with links" hides those
+  linked to nobody. The Links column counts linked people.
+* **People** on the right: the current partner, every past partner, and every
+  close friend. Blue rows are residents; click one to go there (< goes back).
+  Grey rows are records only, with a seed for promoting them later.
+* **Starting state** below: mood, readiness, grudges, and each relationship
+  record (agreements, readouts, trust, investment, hidden resentment, what each
+  side knows about the other).
+* **Open in pawn inspector** shows the resident's full pawn. Overrides set in
+  the inspector still apply there.
+
 ## PawnCli
 
 ```

@@ -26,6 +26,8 @@ public sealed class HistoryEntry
     public double Impact { get; init; }
     public bool Negative { get; init; }
     public IReadOnlyList<string> Tags { get; init; } = [];
+    /// <summary>Index of the involvement (partner) this entry happened to, if any.</summary>
+    public int? Involvement { get; init; }
     /// <summary>How the roll came out, step by step. Only filled when life details are requested.</summary>
     public string? Explain { get; init; }
 }
@@ -37,7 +39,9 @@ public sealed class HistoryEntry
 /// </summary>
 public sealed record Partner(int StartAge, int? EndAge, string? EndReason, bool Married)
 {
-    /// <summary>"male" or "female", from the relationship's start (state.partner_sex).</summary>
+    /// <summary>The involvement's fields (inv.&lt;field&gt;) when it ended, or now.</summary>
+    public IReadOnlyDictionary<string, string> Fields { get; init; } = new Dictionary<string, string>();
+    /// <summary>"male" or "female", from the involvement's partner_sex field.</summary>
     public string Sex { get; init; } = "";
     /// <summary>Partner's age minus the pawn's.</summary>
     public double AgeGap { get; init; }
@@ -78,6 +82,24 @@ public sealed class LifeSimulator
     readonly Dictionary<string, int> _counts = new();
     readonly Dictionary<string, string> _lastChoice = new();
     readonly Dictionary<string, HashSet<int>> _scheduled = new();
+
+    /// <summary>A relationship of any kind: its own fields, no label (the label is derived).</summary>
+    sealed class Involvement
+    {
+        public required int Index { get; init; }
+        public required int StartAge { get; init; }
+        public int? EndAge { get; set; }
+        public string? EndReason { get; set; }
+        public int Years { get; set; }
+        public required Dictionary<string, string> Fields { get; init; }
+        public Dictionary<string, int> LastWriter { get; } = new();
+        public bool Ended => EndAge is not null;
+    }
+
+    readonly List<Involvement> _involvements = new();
+    /// <summary>The involvement inv.&lt;field&gt; refers to right now, if any.</summary>
+    Involvement? _current;
+    int _synced;
     int _age;
     Stage _stage = null!;
     LocationPeriod _place = null!;
@@ -110,6 +132,7 @@ public sealed class LifeSimulator
     void Simulate()
     {
         _f.Set("state.location", _f["pawn.birth_location"]);
+        if (_t.Involvement is not null) Relabel(null);
         foreach (var item in _t.Items)
         {
             if (item.Type == LifeItemType.Condition) Initialize(item);
@@ -127,6 +150,17 @@ public sealed class LifeSimulator
             foreach (var item in _t.Items)
             {
                 if (!IsScheduled(item)) continue;
+                if (item.PerInvolvement)
+                {
+                    // Once for each involvement ongoing when the item's turn comes.
+                    foreach (var inv in _involvements.Where(i => !i.Ended).ToList())
+                    {
+                        Enter(inv);
+                        RollEvent(item);
+                        Leave();
+                    }
+                    continue;
+                }
                 switch (item.Type)
                 {
                     case LifeItemType.Condition: UpdateCondition(item); break;
@@ -134,7 +168,91 @@ public sealed class LifeSimulator
                     case LifeItemType.Fork: ResolveFork(item); break;
                 }
             }
+
+            // Involvement years are counted at the end of the year, after its events.
+            foreach (var inv in _involvements.Where(i => !i.Ended)) inv.Years++;
+            if (_t.Involvement is not null) Relabel(null);
         }
+    }
+
+    // --------------------------------------------------------- involvements
+
+    /// <summary>Point inv.&lt;field&gt; at this involvement.</summary>
+    void Enter(Involvement inv)
+    {
+        _current = inv;
+        foreach (var (field, value) in inv.Fields) _f.Set($"inv.{field}", value);
+        _f.Set("inv.years", inv.Years);
+        foreach (var field in inv.Fields.Keys)
+        {
+            if (inv.LastWriter.TryGetValue(field, out int w)) _lastWriter[$"inv.{field}"] = w;
+            else _lastWriter.Remove($"inv.{field}");
+        }
+    }
+
+    /// <summary>Copy inv.&lt;field&gt; back into the current involvement.</summary>
+    void Store()
+    {
+        var inv = _current!;
+        foreach (var field in inv.Fields.Keys.ToList())
+        {
+            inv.Fields[field] = _f.Cat($"inv.{field}") ?? inv.Fields[field];
+            if (_lastWriter.TryGetValue($"inv.{field}", out int w)) inv.LastWriter[field] = w;
+        }
+    }
+
+    /// <summary>Store the current involvement, clear inv.&lt;field&gt;, and re-derive the label.</summary>
+    void Leave(int? entry = null)
+    {
+        Store();
+        foreach (var field in _current!.Fields.Keys)
+        {
+            _f.Remove($"inv.{field}");
+            _lastWriter.Remove($"inv.{field}");
+        }
+        _f.Remove("inv.years");
+        _current = null;
+        Relabel(entry);
+    }
+
+    /// <summary>A new involvement starting now, with each field at its initial value; inv.&lt;field&gt; points at it.</summary>
+    void StartInvolvement()
+    {
+        var inv = new Involvement
+        {
+            Index = _involvements.Count, StartAge = _age,
+            Fields = _t.Involvement!.Fields.ToDictionary(f => f.Id, f => f.Initial),
+        };
+        _involvements.Add(inv);
+        Enter(inv);
+    }
+
+    /// <summary>
+    /// Write each ongoing involvement as inv0.*, inv1.*, ... (read by any_inv.), the
+    /// count and longest length, and derive state.relationship from the label rules.
+    /// </summary>
+    void Relabel(int? entry)
+    {
+        var inv = _t.Involvement!;
+        var active = _involvements.Where(i => !i.Ended).ToList();
+        for (int i = 0; i < _synced; i++)
+        {
+            foreach (var field in inv.Fields) _f.Remove($"inv{i}.{field.Id}");
+            _f.Remove($"inv{i}.years");
+        }
+        for (int i = 0; i < active.Count; i++)
+        {
+            foreach (var (field, value) in active[i].Fields) _f.Set($"inv{i}.{field}", value);
+            _f.Set($"inv{i}.years", active[i].Years);
+        }
+        _synced = active.Count;
+        _f.Set("state.involvements", active.Count);
+        _f.Set("state.relationship_years", active.Count == 0 ? 0 : active.Max(i => i.Years));
+
+        string? old = _f.Cat("state.relationship");
+        string label = inv.LabelRules.First(r => r.When.All(c => FactTest.Test(c, _f))).Value;
+        _f.Set("state.relationship", label);
+        if (entry is int e && old != label) _lastWriter["state.relationship"] = e;
     }
 
     void RefreshPlace()
@@ -193,8 +311,9 @@ public sealed class LifeSimulator
         return !_scheduled.TryGetValue(item.Id, out var ages) || ages.Contains(_age);
     }
 
-    Rng RngFor(LifeItem item) =>
-        Rng.For(_seed, "life", _stage.Id, _age.ToString(CultureInfo.InvariantCulture), item.Id);
+    Rng RngFor(LifeItem item) => _current is { } inv
+        ? Rng.For(_seed, "life", _stage.Id, _age.ToString(CultureInfo.InvariantCulture), item.Id, inv.Index.ToString(CultureInfo.InvariantCulture))
+        : Rng.For(_seed, "life", _stage.Id, _age.ToString(CultureInfo.InvariantCulture), item.Id);
 
     // ---------------------------------------------------------- conditions
 
@@ -326,9 +445,18 @@ public sealed class LifeSimulator
         int id = _history.Count;
         var changes = new List<(string, string)>();
         var channels = new Dictionary<string, double>();
+        bool started = item.Effects.StartInvolvement;
+        if (started) StartInvolvement();
         Apply(item.Effects, id, changes, channels);
         if (outcome is not null) Apply(outcome.Effects, id, changes, channels);
         if (reading is not null) Apply(reading.Effects, id, changes, channels);
+        var involvement = _current;
+        if (involvement is not null)
+        {
+            if (involvement.Ended) involvement.EndReason ??= outcome?.Id ?? item.Id;
+            Store();
+            Relabel(id);
+        }
 
         _counts[item.Id] = _counts.GetValueOrDefault(item.Id) + 1;
         _lastChoice[item.Id] = outcome?.Id ?? "fired";
@@ -338,8 +466,9 @@ public sealed class LifeSimulator
             Type = LifeItemType.Event, Outcome = outcome?.Id ?? "fired", Reading = reading?.Id,
             Changes = changes, Channels = channels, Causes = CausesOf(read, id),
             Impact = channels.Values.Sum(Math.Abs) * _stage.Weight * (item.Negative ? 1.0 : PositiveValence),
-            Negative = item.Negative, Tags = item.Tags, Explain = why?.ToString(),
+            Negative = item.Negative, Tags = item.Tags, Involvement = involvement?.Index, Explain = why?.ToString(),
         });
+        if (started) Leave(id);
     }
 
     // ---------------------------------------------------------------- forks
@@ -504,6 +633,11 @@ public sealed class LifeSimulator
             channels[channel] = channels.GetValueOrDefault(channel) + delta;
             _lastWriter[key] = entryId;
         }
+        if (e.EndInvolvement && _current is { Ended: false } inv)
+        {
+            inv.EndAge = _age;
+            changes.Add(("involvement", "ended"));
+        }
         if (moved) RefreshPlace();
     }
 
@@ -566,6 +700,15 @@ public sealed class LifeSimulator
 
     List<Partner> BuildPartners()
     {
+        if (_t.Involvement is not null)
+            return _involvements.Select(inv => DescribePartner(
+                new Partner(inv.StartAge, inv.EndAge, inv.EndReason, inv.Fields.GetValueOrDefault("agreement") == "formalized")
+                {
+                    Fields = new Dictionary<string, string>(inv.Fields),
+                },
+                inv.Index, inv.Fields.GetValueOrDefault("partner_sex") == "same")).ToList();
+
+        // Without an involvement section: one relationship at a time, from tagged history entries.
         var partners = new List<Partner>();
         Partner? open = null;
         foreach (var e in _history)

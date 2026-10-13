@@ -119,14 +119,12 @@ start:
     moved_away: 0.3
     drifted_apart: 0.2
     cheated: 0.2
-    overlap: 0.2
     other: 0.2
   blame:
     cheated_on: 0.9
     infidelity: 0.9
     conflict: 0.5
     money: 0.4
-    overlap: 0.4
     incompatible: 0.3
     other: 0.3
     drifted_apart: 0.2

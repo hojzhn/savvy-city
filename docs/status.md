@@ -9,7 +9,7 @@ Last updated 2026-10-13.
 | 1. Seed | Done, plus affiliation, social insight, body fields and the current city | `StartingPointGenerator.cs`, `config.yaml`, `locations.yaml` |
 | 2. Context | Done (birth context) | `locations.yaml`, `eras.yaml` |
 | 3. Family and household | Done, plus parent ethnicity and orientation | `family.yaml` |
-| 4. Life simulation | Done: all 4.7 items, 4.11 invariants; partner sex and past-partner records | `LifeSimulator.cs`, `life.yaml`, `relationships.yaml` |
+| 4. Life simulation | Done: all 4.7 items, 4.11 invariants; relationships as involvements with agreements (label derived); past-partner records | `LifeSimulator.cs`, `life.yaml`, `relationships.yaml` |
 | 5. Event interpretation | Done as readings that write channels | `life.yaml` readings |
 | 6. Adult profile | Done: 6.4–6.9, with calibration; revealed preferences read past partners | `AdultProfiler.cs`, `adult.yaml` |
 | Political Alignment | Done: axes, consistency, issues, stakes, salience | `adult.yaml` beliefs group |
@@ -18,9 +18,9 @@ Last updated 2026-10-13.
 | Linked city | Done: couples by pool matching, households, ex and friend links | `Sim/Population/`, `relationships.yaml` |
 | 7.2 Profile vector, aura, taste | Fields and world matrices done; no attraction scores yet | `World.cs`, `aura.yaml` |
 | 9. Starting state | Done as the bridge into the runtime (rewritten in the spec) | `StartingState.cs`, `relationships.yaml` |
-| Debug app | Pawn inspector and Traits tab | `Game/` |
+| Debug app | Pawn inspector, Traits tab, City tab | `Game/` |
 
-108 tests pass (`dotnet test`).
+115 tests pass (`dotnet test`).
 
 ## Population snapshot
 
@@ -77,15 +77,17 @@ to research and tune:
 * **The wound's "want" bonus** (spec 6.9) is not applied to partner preferences.
 * **Golden-seed tests** (spec 4.12, 6.13): not added while the data is still
   being tuned.
-* **The debug app** has no city view yet; use `PawnCli --city`.
 * **The game itself:** no player, dates or dialogue yet.
 
 ## Next steps
 
-1. Decide how hidden resentment should behave over long relationships (8.3).
-2. Build attraction (7.1–7.6) and the version 1 runtime core (8.2–8.4, thoughts
+1. Casual and overlapping involvements in the life simulation (hookups,
+   situationships, affairs, non-monogamy); then city matching and the starting
+   state read agreements instead of the label.
+2. Decide how hidden resentment should behave over long relationships (8.3).
+3. Build attraction (7.1–7.6) and the version 1 runtime core (8.2–8.4, thoughts
    and the why view), with the tuning harness running on the linked city.
-3. Check that the life simulation's marriages and divorces land near what the
+4. Check that the life simulation's marriages and divorces land near what the
    runtime produces from the same pawns.
-4. Replace the placeholder locations and rates with researched data.
-5. Add golden-seed tests once the numbers settle.
+5. Replace the placeholder locations and rates with researched data.
+6. Add golden-seed tests once the numbers settle.

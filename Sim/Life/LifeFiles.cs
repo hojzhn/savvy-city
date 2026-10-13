@@ -15,7 +15,38 @@ public sealed class LifeFile
     /// <summary>Softmax temperature for event readings (spec section 5).</summary>
     [DefaultValue(1.0)]
     public double ReadingTemperature { get; set; } = 1.0;
+    /// <summary>Relationships as involvements: per-involvement fields and the derived label.</summary>
+    public InvolvementDto? Involvement { get; set; }
     public List<LifeItemDto> Items { get; set; } = new();
+}
+
+/// <summary>
+/// A pawn can be involved with several people at once. Each involvement has its
+/// own fields (inv.&lt;id&gt;), such as its agreement. Relationship labels are not
+/// stored: state.relationship is derived from the involvements by the label rules.
+/// </summary>
+public sealed class InvolvementDto
+{
+    public string? Note { get; set; }
+    public List<InvolvementFieldDto> Fields { get; set; } = new();
+    /// <summary>Derives state.relationship whenever an involvement starts, changes or ends.</summary>
+    public InvolvementLabelDto Label { get; set; } = new();
+}
+
+public sealed class InvolvementFieldDto
+{
+    public string Id { get; set; } = "";
+    public string? Note { get; set; }
+    public List<string> Values { get; set; } = new();
+    /// <summary>Value when the involvement starts (defaults to the first value).</summary>
+    public string? Initial { get; set; }
+}
+
+public sealed class InvolvementLabelDto
+{
+    public List<string> Values { get; set; } = new();
+    /// <summary>First matching rule wins. Use any_inv.&lt;field&gt; and state.involvements.</summary>
+    public List<RuleDto> Rules { get; set; } = new();
 }
 
 public sealed class StageDto
@@ -55,6 +86,8 @@ public sealed class LifeItemDto
     public int Max { get; set; }
     /// <summary>Force the event in its last simulated year if it has not fired by then.</summary>
     public bool MustHappen { get; set; }
+    /// <summary>Events only: roll once a year for each ongoing involvement, which inv.&lt;field&gt; then reads and sets.</summary>
+    public bool PerInvolvement { get; set; }
     public Dictionary<string, object>? Requires { get; set; }
 
     // ---- conditions ----
@@ -141,6 +174,10 @@ public sealed class EffectsDto
     public List<string>? RecordFirstAge { get; set; }
     /// <summary>Deltas added to accumulator channels.</summary>
     public Dictionary<string, double>? Channels { get; set; }
+    /// <summary>Start a new involvement; inv.&lt;field&gt; sets in the same event apply to it.</summary>
+    public bool StartInvolvement { get; set; }
+    /// <summary>Per-involvement events: the involvement ends (8.3 Dissolve). The outcome id is how it ended.</summary>
+    public bool EndInvolvement { get; set; }
 }
 
 public sealed class RuleDto

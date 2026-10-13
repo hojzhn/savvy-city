@@ -44,8 +44,18 @@
 # age, cal_year, stage, place.* (where the pawn lives that year: same fields
 # as context.*), state.location, state.lives_in_current_city, channel.*.
 #
-# Tags: relationship_start, relationship_married and relationship_end build the
-# pawn's partner list.
+# Involvements (relationships). A pawn can be involved with several people at
+# once. Each involvement has its own fields, read and set as inv.<field> by
+# events with per_involvement: true (rolled once a year for each ongoing
+# involvement); inv.years is built in. Elsewhere, any_inv.<field> holds if any
+# ongoing involvement matches. Effects: start_involvement (in an event's own
+# effects) starts one, and inv.<field> sets in the same event apply to it;
+# end_involvement ends the current one, and the outcome id is how it ended.
+# Relationship labels are not stored: state.relationship is derived from the
+# involvements by the label rules, every time one changes. Also built in:
+# state.involvements (how many are ongoing) and state.relationship_years (the
+# longest ongoing one, in years). The partner list reads the agreement and
+# partner_sex fields (formalized means married; same means same-sex).
 #
 # Use `note:` fields rather than comments below this header: the Traits editor
 # rewrites this file when it saves, keeping this header but not comments.
@@ -62,6 +72,28 @@ channels: [threat_shift, reward_shift, control_shift, affiliation_shift, care_in
 
 fork_temperature: 1.0
 reading_temperature: 0.7
+
+involvement:
+  note: Attraction spec 8.1 and 8.3. A relationship is its agreements and how the two live, not a label.
+  fields:
+    - id: agreement
+      note: none (no talk yet), defined (the talk; 8.3 Define), formalized (8.3 Formalize).
+      values: [none, defined, formalized]
+    - id: living_together
+      values: ["no", "yes"]
+    - id: partner_sex
+      note: The partner's sex relative to the pawn's.
+      values: [opposite, same]
+  label:
+    values: [single, dating, cohabiting, married]
+    rules:
+      - when: { any_inv.agreement: formalized }
+        value: married
+      - when: { any_inv.living_together: "yes" }
+        value: cohabiting
+      - when: { state.involvements: ">=1" }
+        value: dating
+      - value: single
 
 items:
 
@@ -158,19 +190,6 @@ items:
     kind: state
     values: ["no", "yes"]
     initial_value: "no"
-
-  - id: relationship
-    type: condition
-    kind: state
-    values: [single, dating, cohabiting, married]
-    initial_value: single
-
-  - id: partner_sex
-    note: The current partner's sex relative to the pawn's, set when a relationship starts (from identity.orientation).
-    type: condition
-    kind: state
-    values: [none, opposite, same]
-    initial_value: none
 
   - id: cheated_on
     note: Set when a partner cheated. The adult profile turns this into a dealbreaker (spec 6.8).
@@ -844,9 +863,10 @@ items:
     valence: positive
 
   - id: start_dating
+    note: Starts an involvement, with no agreement yet. Only when the pawn has none; overlapping involvements come later.
     type: event
     from_age: 14
-    requires: { state.relationship: single }
+    requires: { state.involvements: "0" }
     rate:
       base: "0.3"
       weights:
@@ -866,19 +886,35 @@ items:
         note: Most bisexual people with a partner have an opposite-sex partner (PLACEHOLDER weight, about 4 in 5).
         requires: { identity.orientation: [straight, bisexual] }
         weights: { identity.orientation: { bisexual: 1.4 } }
-        effects: { set: { state.partner_sex: opposite } }
+        effects: { set: { inv.partner_sex: opposite } }
       - id: same_sex
         requires: { identity.orientation: [gay, bisexual] }
-        effects: { set: { state.partner_sex: same } }
+        effects: { set: { inv.partner_sex: same } }
     effects:
-      set: { state.relationship: dating }
-    tags: [relationship_start]
+      start_involvement: true
+    valence: positive
+
+  - id: the_talk
+    note: Attraction spec 8.3 Define. The two agree on what they are. Exclusivity comes from both monogamy views in the starting state.
+    type: event
+    per_involvement: true
+    from_age: 14
+    requires: { inv.agreement: none }
+    rate:
+      base: "0.5"
+      weights:
+        pawn.affiliation: 0.3
+        pawn.threat_sensitivity: 0.2
+        pawn.reward_drive: -0.2
+    effects:
+      set: { inv.agreement: defined }
     valence: positive
 
   - id: move_in_together
     type: event
+    per_involvement: true
     from_age: 18
-    requires: { state.relationship: dating, state.relationship_years: ">=1" }
+    requires: { inv.agreement: [none, defined], inv.living_together: "no", inv.years: ">=1" }
     rate:
       base: "0.25"
       weights:
@@ -886,20 +922,22 @@ items:
         place.norms_sex: { restrictive: -1.0, permissive: 0.3 }
         pawn.affiliation: 0.3
     effects:
-      set: { state.relationship: cohabiting, state.left_home: "yes" }
+      set: { inv.living_together: "yes", inv.agreement: defined, state.left_home: "yes" }
       record_first_age: [state.age_left_home]
     valence: positive
 
   - id: marry
+    note: Attraction spec 8.3 Formalize.
     type: event
+    per_involvement: true
     from_age: 18
-    requires: { state.relationship: [dating, cohabiting], state.relationship_years: ">=1" }
+    requires: { inv.agreement: [none, defined], inv.years: ">=1" }
     rate:
       base: rate.marriage
       weights:
         any_parent.practice: { devout: 0.8, strict: 1.1 }
         any_parent.religion: { latter_day_saint: 1.0 }
-        state.relationship: { cohabiting: 0.4 }
+        inv.living_together: { "yes": 0.4 }
         place.norms_family: { extended: 0.3, individualist: -0.3 }
       mods:
         - when: { age: "18..21" }
@@ -907,10 +945,10 @@ items:
         - when: { state.children: ">=1" }
           add: 0.5
         - note: Same-sex marriage became legal in New York in 2011. PLACEHOLDER until the law is a location table.
-          when: { state.partner_sex: same, cal_year: "<2011" }
+          when: { inv.partner_sex: same, cal_year: "<2011" }
           add: -4.0
     effects:
-      set: { state.relationship: married, state.left_home: "yes" }
+      set: { inv.agreement: formalized, inv.living_together: "yes", state.left_home: "yes" }
       record_first_age: [state.age_left_home]
       channels: { secure_bond: 0.3 }
     readings:
@@ -923,22 +961,23 @@ items:
           - when: { age: "<23" }
             add: 1.0
         effects: { channels: { constraint: 0.5 } }
-    tags: [relationship_married]
     valence: positive
 
   - id: breakup
+    note: Attraction spec 8.3 Dissolve, for an involvement that was never formalized.
     type: event
+    per_involvement: true
     from_age: 14
-    requires: { state.relationship: [dating, cohabiting] }
+    requires: { inv.agreement: [none, defined] }
     rate:
       base: "0.35"
       weights:
         pawn.self_control: -0.3
         pawn.reward_drive: 0.3
         pawn.threat_sensitivity: 0.3
-        state.relationship: { cohabiting: -0.9 }
+        inv.living_together: { "yes": -0.9 }
       mods:
-        - when: { state.relationship_years: ">=3" }
+        - when: { inv.years: ">=3" }
           add: -0.6
     outcomes:
       - id: drifted_apart
@@ -962,7 +1001,7 @@ items:
       - id: other
         weight: 7
     effects:
-      set: { state.relationship: single, state.partner_sex: none }
+      end_involvement: true
       channels: { rupture: 0.4 }
     readings:
       - id: people_leave
@@ -976,11 +1015,12 @@ items:
         effects: { channels: { shame: 0.3 } }
       - id: moving_on
         weights: { pawn.reward_drive: 1.0, pawn.threat_sensitivity: -1.0 }
-    tags: [relationship_end]
 
   - id: divorce
+    note: Attraction spec 8.3 Dissolve, for a formalized involvement.
     type: event
-    requires: { state.relationship: married }
+    per_involvement: true
+    requires: { inv.agreement: formalized }
     rate:
       base: rate.divorce_adult
       weights:
@@ -988,7 +1028,7 @@ items:
         any_parent.practice: { devout: -0.6, strict: -0.8 }
         state.wealth: { poverty: 0.5 }
       mods:
-        - when: { state.relationship_years: "<5" }
+        - when: { inv.years: "<5" }
           add: 0.5
     outcomes:
       - id: grew_apart
@@ -1001,7 +1041,7 @@ items:
       - id: money
         weight: 15
     effects:
-      set: { state.relationship: single, state.partner_sex: none }
+      end_involvement: true
       channels: { rupture: 0.8 }
     readings:
       - id: failure
@@ -1010,7 +1050,6 @@ items:
       - id: relief
         weights: { pawn.reward_drive: 1.0 }
         effects: { channels: { reward_shift: 0.1 } }
-    tags: [relationship_end]
 
   - id: have_child
     type: event
@@ -1365,9 +1404,3 @@ items:
       - when: { state.income: [none, low] }
         value: roommates
       - value: alone
-
-  - id: relationship_years
-    note: Counted at the end of each year, after that year's relationship events.
-    type: condition
-    kind: counter
-    while: { state.relationship: "!single" }

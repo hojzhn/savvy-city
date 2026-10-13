@@ -103,6 +103,110 @@ public class LifeTests
     }
 
     [Fact]
+    public void RelationshipLabelIsDerivedFromInvolvements()
+    {
+        // Attraction spec 8.1: the relationship is its agreements; the label only names them.
+        foreach (var p in Population.Value.Take(1500))
+        {
+            var open = p.Partners.Where(x => !x.Ended).ToList();
+            string expected = open.Any(x => x.Fields["agreement"] == "formalized") ? "married"
+                : open.Any(x => x.Fields["living_together"] == "yes") ? "cohabiting"
+                : open.Count > 0 ? "dating" : "single";
+            Assert.Equal(expected, p.Facts["state.relationship"]);
+            Assert.Equal(open.Count, p.Facts.Num("state.involvements"));
+            // Counted at the end of each simulated year, including the current one.
+            Assert.Equal(open.Count == 0 ? 0 : open.Max(x => x.Years(p.Age) + 1), p.Facts.Num("state.relationship_years"));
+            // Married partners are the formalized ones, and a formalized involvement lives together.
+            Assert.All(p.Partners, x => Assert.Equal(x.Fields["agreement"] == "formalized", x.Married));
+            Assert.All(p.Partners.Where(x => x.Married), x => Assert.Equal("yes", x.Fields["living_together"]));
+        }
+        // Every life event about a partner names which one.
+        Assert.All(Population.Value.Take(300).SelectMany(p => p.History).Where(e => e.ItemId is "marry" or "breakup" or "divorce"),
+            e => Assert.NotNull(e.Involvement));
+    }
+
+    static string InvolvementLife(string items) => $$"""
+        stages:
+          - { id: childhood, from: 0, to: 17 }
+          - { id: adulthood, from: 18, to: 120 }
+        channels: [rupture]
+        involvement:
+          fields:
+            - { id: agreement, values: [none, defined, formalized] }
+          label:
+            values: [single, together]
+            rules:
+              - { when: { state.involvements: ">=1" }, value: together }
+              - { value: single }
+        items:
+        {{items}}
+        """;
+
+    [Theory]
+    [InlineData("""
+          - id: x
+            type: event
+            rate: { base: "0.5" }
+            effects: { set: { state.relationship: together } }
+        """, "derived from the involvements")]
+    [InlineData("""
+          - id: x
+            type: event
+            requires: { inv.agreement: none }
+            rate: { base: "0.5" }
+        """, "only per_involvement events have a current involvement")]
+    [InlineData("""
+          - id: x
+            type: event
+            rate: { base: "0.5" }
+            effects: { end_involvement: true }
+        """, "end_involvement only works in per_involvement events")]
+    [InlineData("""
+          - id: x
+            type: event
+            per_involvement: true
+            frequency: once
+            rate: { base: "0.5" }
+        """, "rolls every year")]
+    [InlineData("""
+          - id: relationship
+            type: condition
+            kind: state
+            values: [a]
+            initial_value: a
+        """, "'relationship' is built in")]
+    public void BadInvolvementDataIsRejected(string items, string message)
+    {
+        var e = Assert.Throws<DataException>(() => TestData.WithLife(InvolvementLife(items)));
+        Assert.Contains(message, e.Message);
+    }
+
+    [Fact]
+    public void InvolvementsCanOverlap()
+    {
+        // Nothing in the engine limits a pawn to one involvement; the data decides.
+        var data = TestData.WithLife(InvolvementLife("""
+          - id: meet
+            type: event
+            from_age: 16
+            rate: { base: "0.9" }
+            effects: { start_involvement: true }
+          - id: agree
+            type: event
+            per_involvement: true
+            requires: { inv.agreement: none }
+            rate: { base: "0.9" }
+            effects: { set: { inv.agreement: defined } }
+        """));
+        var p = new PawnGenerator(data).Generate(3);
+        int open = p.Partners.Count(x => !x.Ended);
+        Assert.True(open > 2);
+        Assert.Equal(open, p.Facts.Num("state.involvements"));
+        Assert.Equal("together", p.Facts["state.relationship"]);
+        Assert.Contains(p.Partners, x => x.Fields["agreement"] == "defined");
+    }
+
+    [Fact]
     public void PopulationRatesArePlausible()
     {
         Assert.InRange(Share(p => p.Facts["life.parental_divorce"] != "never"), 0.12, 0.35);

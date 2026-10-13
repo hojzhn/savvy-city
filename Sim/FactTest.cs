@@ -2,7 +2,7 @@ using YouWillDate.Sim.Data;
 
 namespace YouWillDate.Sim;
 
-/// <summary>Evaluates conditions and term keys against facts, resolving self. and any_parent.</summary>
+/// <summary>Evaluates conditions and term keys against facts, resolving self., any_parent. and any_inv.</summary>
 static class FactTest
 {
     /// <param name="role">"mother" or "father" when rolling a per-parent item, otherwise null.</param>
@@ -15,13 +15,25 @@ static class FactTest
             string rest = c.Key["any_parent.".Length..];
             return TestKey(c, facts, $"mother.{rest}") || TestKey(c, facts, $"father.{rest}");
         }
+        if (c.Key.StartsWith("any_inv."))
+        {
+            string rest = c.Key["any_inv.".Length..];
+            return InvolvementKeys(rest, facts).Any(k => TestKey(c, facts, k));
+        }
         return TestKey(c, facts, c.Key);
     }
 
     static bool TestKey(Condition c, Facts facts, string key) =>
         c.IsNumeric ? c.TestNumeric(facts.Num(key)) : c.TestCategorical(facts.Cat(key));
 
-    /// <summary>Categorical values of a key; any_parent. gives both parents' values.</summary>
+    /// <summary>"inv0.&lt;field&gt;", "inv1.&lt;field&gt;", ... for each ongoing involvement.</summary>
+    static IEnumerable<string> InvolvementKeys(string field, Facts facts)
+    {
+        int count = (int)(facts.Num("state.involvements") ?? 0);
+        for (int i = 0; i < count; i++) yield return $"inv{i}.{field}";
+    }
+
+    /// <summary>Categorical values of a key; any_parent. gives both parents' values, any_inv. every ongoing involvement's.</summary>
     public static IEnumerable<string> Values(string key, Facts facts)
     {
         if (key.StartsWith("any_parent."))
@@ -33,6 +45,12 @@ static class FactTest
             if (f is not null && f != m) yield return f;
             yield break;
         }
-        if (facts.Cat(key) is string v) yield return v;
+        if (key.StartsWith("any_inv."))
+        {
+            foreach (var v in InvolvementKeys(key["any_inv.".Length..], facts).Select(facts.Cat).OfType<string>().Distinct())
+                yield return v;
+            yield break;
+        }
+        if (facts.Cat(key) is string v1) yield return v1;
     }
 }

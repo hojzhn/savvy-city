@@ -114,7 +114,8 @@ public static class PawnText
         string what = e.Type == LifeItemType.Condition
             ? $"{Pretty(e.ItemId)}: {Pretty(e.Outcome)}"
             : e.Outcome == "fired" ? Pretty(e.ItemId) : $"{Pretty(e.ItemId)} ({Pretty(e.Outcome)})";
-        return $"age {e.Age}: {what}" + (e.Reading is null ? "" : $", read as: {Pretty(e.Reading)}");
+        return $"age {e.Age}: {what}" + (e.Involvement is int i ? $" [partner {i + 1}]" : "")
+               + (e.Reading is null ? "" : $", read as: {Pretty(e.Reading)}");
     }
 
     static string Pretty(string id) => id.Replace('_', ' ');

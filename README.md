@@ -53,7 +53,7 @@ runtime. The same world seed always produces the same city.
 | [Data/](Data/) | YAML data tables that define every trait and rule. Designers edit these. |
 | [Sim/](Sim/) | The generator: a plain C# library with no Godot code. |
 | [Sim.Tests/](Sim.Tests/) | Unit, invariant and population tests. |
-| [Game/](Game/) | Godot project: the debug app (pawn inspector and Traits tab). |
+| [Game/](Game/) | Godot project: the debug app (pawn inspector, Traits tab and City tab). |
 | [Tools/PawnCli/](Tools/PawnCli/) | Command-line tool for printing pawns, population statistics and cities. |
 | [docs/](docs/) | Design spec and project documentation. |
 

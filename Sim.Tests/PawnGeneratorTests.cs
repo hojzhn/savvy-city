@@ -43,9 +43,7 @@ public class PawnGeneratorTests
                 Assert.Contains(value, item.SummaryValues);
                 continue;
             }
-            string canonical = key.StartsWith("mother.") || key.StartsWith("father.")
-                ? "parent." + key[(key.IndexOf('.') + 1)..]
-                : key;
+            string canonical = YouWillDate.Sim.Data.GameData.SchemaKey(key);
             Assert.True(schema.TryGetValue(canonical, out var allowed), $"unknown fact {key}");
             Assert.True(allowed!.Contains(value), $"{key} = {value} is not allowed");
         }

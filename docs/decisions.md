@@ -136,6 +136,29 @@ and spec section 9.
   records. `adult.friend_closeness` is written but social support doesn't read
   it yet, to keep the current support and loneliness targets.
 
+## Relationships as involvements (2026-10-13)
+
+* **No stored relationship label.** Following the attraction spec (8.1: the
+  record has no relationship type), the life simulation keeps a list of
+  involvements, each with its own agreement (none, defined, formalized), living
+  together, and partner sex. `state.relationship` is derived from them by data
+  rules in life.yaml; effects can't set it.
+* **The events became agreement ops.** start_dating starts an involvement with
+  no agreement; a new event, the_talk, defines it (8.3 Define); move_in_together
+  turns on living together; marry formalizes it; breakup and divorce dissolve
+  it. Rates are unchanged, and the population barely moved (married 49.6% before
+  and after, over 3,000 pawns).
+* **One at a time, for now.** The engine allows any number of ongoing
+  involvements, but start_dating still requires none, so pawns have one at a
+  time as before. Casual and overlapping involvements (hookups, affairs,
+  non-monogamy) are the next step.
+* **Labels stay as calibration targets.** Researched rates are labeled (marriage
+  and divorce rates by year); they remain the base rates of the agreement
+  events, and the derived label shares are what gets checked.
+* **Per-involvement rolls use their own random stream** (the involvement's index
+  is part of the sub-seed), so individual pawns' histories changed with this
+  rewrite even though the population did not.
+
 ## Tools
 
 * **Notes instead of comments.** The Traits tab rewrites data files when it

@@ -11,12 +11,24 @@ public sealed partial class GameData
     public LifeTables? Life { get; }
 
     static readonly Regex LifeId = new("^[a-z0-9_]+$");
+    static readonly Regex InvolvementKey = new(@"^inv\d+\.");
     static readonly string[] ReservedState = ["location", "lives_in_current_city"];
+    /// <summary>State the engine derives from the involvements; no condition or effect may write it.</summary>
+    static readonly string[] InvolvementState = ["relationship", "involvements", "relationship_years"];
 
     /// <summary>Facts written by the life simulation; they can't be overridden.</summary>
     public static bool IsLifeKey(string key) =>
         key.StartsWith("state.") || key.StartsWith("channel.") || key.StartsWith("place.") || key.StartsWith("life.")
+        || key.StartsWith("inv.") || InvolvementKey.IsMatch(key)
         || key is "age" or "cal_year" or "stage";
+
+    /// <summary>
+    /// Ids that can end a relationship: the outcomes of events that end an
+    /// involvement (or the event's own id when it has no outcomes).
+    /// </summary>
+    public IReadOnlyCollection<string> EndReasons =>
+        Life?.Items.Where(i => i.PerInvolvement && (i.Effects.EndInvolvement || i.Outcomes.Any(o => o.Effects.EndInvolvement)))
+            .SelectMany(i => i.Outcomes.Length > 0 ? i.Outcomes.Select(o => o.Id) : [i.Id]).ToHashSet() ?? [];
 
     /// <summary>A base rate for a calendar year: the place's override, else the latest eras.yaml entry that sets it.</summary>
     public double BaseRate(string name, int calendarYear, LocationPeriod? place)
@@ -53,6 +65,7 @@ public sealed partial class GameData
         _schema["state.location"] = locationIds;
         _schema["state.lives_in_current_city"] = ["yes", "no"];
         foreach (var c in channels) _schema[$"channel.{c}"] = null;
+        var involvementFields = DeclareInvolvement(f.Involvement);
 
         var ids = new HashSet<string>();
         foreach (var d in f.Items)
@@ -61,7 +74,8 @@ public sealed partial class GameData
             if (!LifeId.IsMatch(d.Id)) throw new DataException($"{where}: ids use a-z, 0-9 and _");
             if (!ids.Add(d.Id)) throw new DataException($"{where}: defined twice");
             if (d.Type != "condition") continue;
-            if (ReservedState.Contains(d.Id)) throw new DataException($"{where}: '{d.Id}' is built in");
+            if (ReservedState.Contains(d.Id) || (f.Involvement is not null && InvolvementState.Contains(d.Id)))
+                throw new DataException($"{where}: '{d.Id}' is built in");
             var kind = ParseKind(d, where);
             if (kind is ConditionKind.Number or ConditionKind.Counter)
             {
@@ -76,6 +90,17 @@ public sealed partial class GameData
             }
         }
 
+        // The label rules may read any state, so they compile once every condition is declared.
+        InvolvementTables? involvement = null;
+        if (f.Involvement is { } inv)
+        {
+            var labelValues = _schema["state.relationship"]!;
+            var rules = CompileRules(inv.Label.Rules, "life.yaml: involvement label rule", new GroupDto { Name = "state" }, labelValues);
+            if (rules.Length == 0 || rules[^1].When.Length > 0)
+                throw new DataException("life.yaml: involvement label needs rules, the last one without conditions (the fallback)");
+            involvement = new InvolvementTables { Fields = involvementFields, LabelValues = inv.Label.Values.ToArray(), LabelRules = rules };
+        }
+
         var items = f.Items.Select(d => CompileLifeItem(d, stages, channels)).ToArray();
         // Summaries of events and forks are written at the end of the simulation:
         // later steps (adult traits) can read them, life items can't.
@@ -83,10 +108,91 @@ public sealed partial class GameData
             _schema[$"life.{item.Id}"] = item.SummaryValues.ToHashSet();
         return new LifeTables
         {
-            Stages = stages, Channels = channels, Items = items,
+            Stages = stages, Channels = channels, Items = items, Involvement = involvement,
             ReadingTemperature = f.ReadingTemperature > 0 ? f.ReadingTemperature
                 : throw new DataException("life.yaml: reading_temperature must be above 0"),
         };
+    }
+
+    /// <summary>
+    /// Per-involvement fields (inv.&lt;id&gt;, plus the built-in inv.years) and the
+    /// state the engine derives from all involvements: state.relationship (the
+    /// label), state.involvements (how many are ongoing) and state.relationship_years
+    /// (the longest ongoing one).
+    /// </summary>
+    InvolvementField[] DeclareInvolvement(InvolvementDto? inv)
+    {
+        if (inv is null) return [];
+        const string where = "life.yaml: involvement";
+        var fields = inv.Fields.Select(x =>
+        {
+            if (!LifeId.IsMatch(x.Id)) throw new DataException($"{where} field '{x.Id}': ids use a-z, 0-9 and _");
+            if (x.Id == "years") throw new DataException($"{where}: 'years' is built in");
+            if (x.Values.Count == 0) throw new DataException($"{where} field '{x.Id}': needs values");
+            if (x.Values.Distinct().Count() != x.Values.Count) throw new DataException($"{where} field '{x.Id}': duplicate values");
+            string initial = x.Initial ?? x.Values[0];
+            if (!x.Values.Contains(initial)) throw new DataException($"{where} field '{x.Id}': initial '{initial}' is not one of its values");
+            return new InvolvementField(x.Id, x.Values.ToArray(), initial);
+        }).ToArray();
+        if (fields.Select(x => x.Id).Distinct().Count() != fields.Length) throw new DataException($"{where}: duplicate fields");
+        if (inv.Label.Values.Count == 0 || inv.Label.Values.Distinct().Count() != inv.Label.Values.Count)
+            throw new DataException($"{where} label: needs distinct values");
+
+        foreach (var x in fields) _schema[$"inv.{x.Id}"] = x.Values.ToHashSet();
+        _schema["inv.years"] = null;
+        _schema["state.relationship"] = inv.Label.Values.ToHashSet();
+        _schema["state.involvements"] = null;
+        _schema["state.relationship_years"] = null;
+        return fields;
+    }
+
+    /// <summary>
+    /// inv.&lt;field&gt; belongs to the involvement a per-involvement event is rolling
+    /// for. Anywhere else, read any_inv.&lt;field&gt; instead; an event that starts an
+    /// involvement may set the new one's fields.
+    /// </summary>
+    static void CheckInvolvementUse(LifeItem item, string where)
+    {
+        var reads = new List<string>();
+        void Conds(IEnumerable<Condition> cs) => reads.AddRange(cs.Select(c => c.Key));
+        void Rate(Rate? r)
+        {
+            if (r is null) return;
+            reads.AddRange(r.Terms.Select(t => t.Key));
+            foreach (var m in r.Mods) Conds(m.When);
+        }
+        Conds(item.Requires);
+        Conds(item.While);
+        foreach (var rule in item.Rules.Concat(item.InitialRules)) Conds(rule.When);
+        if (item.Table is { } t)
+        {
+            Conds(t.OnlyIf);
+            foreach (var m in t.Mods) Conds(m.When);
+        }
+        Rate(item.Rate);
+        Rate(item.Up);
+        Rate(item.Down);
+        var choices = item.Outcomes.Concat(item.Readings).Concat(item.Options).ToList();
+        foreach (var c in choices)
+        {
+            Conds(c.Requires);
+            reads.AddRange(c.Terms.Select(x => x.Key));
+            foreach (var m in c.Mods) Conds(m.When);
+        }
+        var effects = choices.Select(c => c.Effects).Prepend(item.Effects).ToList();
+
+        if (!item.PerInvolvement && reads.FirstOrDefault(k => k.StartsWith("inv.")) is { } read)
+            throw new DataException($"{where}: reads '{read}', but only per_involvement events have a current involvement; use any_inv.");
+        bool starts = item.Effects.StartInvolvement;
+        if (choices.Any(c => c.Effects.StartInvolvement))
+            throw new DataException($"{where}: start_involvement goes in the event's own effects, not an outcome's");
+        if (item.PerInvolvement && starts)
+            throw new DataException($"{where}: a per_involvement event can't start another involvement");
+        if (!item.PerInvolvement && effects.Any(e => e.EndInvolvement))
+            throw new DataException($"{where}: end_involvement only works in per_involvement events");
+        foreach (var e in effects)
+            if (!item.PerInvolvement && !starts && e.Set.FirstOrDefault(s => s.Key.StartsWith("inv.")) is { Key: not null } set)
+                throw new DataException($"{where}: sets '{set.Key}', but has no involvement; use per_involvement or start_involvement");
     }
 
     Stage[] CompileStages(LifeFile f)
@@ -171,8 +277,22 @@ public sealed partial class GameData
             _ => [],
         };
 
+        if (d.PerInvolvement)
+        {
+            if (type != LifeItemType.Event) throw new DataException($"{where}: per_involvement is for events");
+            if (LifeSource?.Involvement is null) throw new DataException($"{where}: per_involvement needs an involvement section");
+            if (freq != Frequency.PerYear || d.Ages is not null || max > 0 || d.MustHappen)
+                throw new DataException($"{where}: a per_involvement event rolls every year; leave out frequency, ages, max and must_happen");
+        }
+
+        LifeItem Checked(LifeItem item)
+        {
+            CheckInvolvementUse(item, where);
+            return item;
+        }
+
         if (type == LifeItemType.Condition)
-            return CompileCondition(d, where, requires, from, to, freq, max, pseudo);
+            return Checked(CompileCondition(d, where, requires, from, to, freq, max, pseudo));
 
         if (d.Values.Count > 0 || d.Initial is not null || d.Kind is not null)
             throw new DataException($"{where}: values, initial and kind are for conditions only");
@@ -180,10 +300,10 @@ public sealed partial class GameData
         if (type == LifeItemType.Event)
         {
             if (d.Rate is null) throw new DataException($"{where}: an event needs a rate");
-            return new LifeItem
+            return Checked(new LifeItem
             {
                 Id = d.Id, Note = d.Note, Type = type, WindowFrom = from, WindowTo = to, Ages = d.Ages?.ToArray(),
-                Frequency = freq, Max = max, MustHappen = d.MustHappen, Requires = requires,
+                Frequency = freq, Max = max, MustHappen = d.MustHappen, PerInvolvement = d.PerInvolvement, Requires = requires,
                 Rate = CompileRate(d.Rate, where + " rate", pseudo),
                 Outcomes = CompileChoices(d.Outcomes, where + " outcome", pseudo, channels),
                 Effects = CompileEffects(d.Effects, where + " effects", channels),
@@ -196,7 +316,7 @@ public sealed partial class GameData
                 },
                 Tags = d.Tags?.ToArray() ?? [],
                 SummaryValues = summary,
-            };
+            });
         }
 
         // Fork
@@ -207,7 +327,7 @@ public sealed partial class GameData
         if (temperature <= 0) throw new DataException($"{where}: temperature must be above 0");
         if (d.Rate is not null || d.Outcomes is not null || d.Readings is not null)
             throw new DataException($"{where}: forks use options, not rate/outcomes/readings");
-        return new LifeItem
+        return Checked(new LifeItem
         {
             Id = d.Id, Note = d.Note, Type = type, WindowFrom = from, WindowTo = to, Ages = d.Ages?.ToArray(),
             Frequency = freq, Max = max, Requires = requires,
@@ -218,7 +338,7 @@ public sealed partial class GameData
             Tags = d.Tags?.ToArray() ?? [],
             Negative = d.Valence == "negative",
             SummaryValues = summary,
-        };
+        });
     }
 
     LifeItem CompileCondition(LifeItemDto d, string where, Condition[] requires, int from, int to,
@@ -397,17 +517,20 @@ public sealed partial class GameData
     {
         if (e is null) return Effects.None;
 
+        bool Derived(string key) => LifeSource?.Involvement is not null && key.StartsWith("state.") && InvolvementState.Contains(key[6..]);
         string NumericState(string key)
         {
-            if (!key.StartsWith("state.") || !_schema.TryGetValue(key, out var a) || a is not null)
+            if (!key.StartsWith("state.") || !_schema.TryGetValue(key, out var a) || a is not null || Derived(key))
                 throw new DataException($"{where}: '{key}' is not a numeric state (number or counter condition)");
             return key;
         }
 
         var set = (e.Set ?? new()).Select(kv =>
         {
-            if (!kv.Key.StartsWith("state.") || !_schema.TryGetValue(kv.Key, out var allowed))
-                throw new DataException($"{where}: can only set state.<condition>, not '{kv.Key}'");
+            if (Derived(kv.Key))
+                throw new DataException($"{where}: '{kv.Key}' is derived from the involvements; change an involvement instead");
+            if (!(kv.Key.StartsWith("state.") || kv.Key.StartsWith("inv.")) || !_schema.TryGetValue(kv.Key, out var allowed))
+                throw new DataException($"{where}: can only set state.<condition> or inv.<field>, not '{kv.Key}'");
             if (allowed is null) throw new DataException($"{where}: '{kv.Key}' is numeric; use add or reset");
             if (kv.Value == "$current_city")
             {
@@ -427,6 +550,8 @@ public sealed partial class GameData
             Channels = (e.Channels ?? new()).Select(kv => channels.Contains(kv.Key)
                 ? (kv.Key, kv.Value)
                 : throw new DataException($"{where}: unknown channel '{kv.Key}'; channels: {string.Join(", ", channels)}")).ToArray(),
+            StartInvolvement = e.StartInvolvement,
+            EndInvolvement = e.EndInvolvement,
         };
     }
 

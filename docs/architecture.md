@@ -65,10 +65,20 @@ Every fired event, resolved fork and logged condition change becomes a
 impact score, and the ids of the earlier entries that caused it. Relationship
 tags on entries build the pawn's partner list.
 
-At the end, each partner in the list becomes a record (`Partner`): sex (from
-the `same_sex` / `opposite_sex` outcome of the start event), age gap, standing,
-availability, and a derived seed for promoting the partner to a full pawn. The
-attributes come from `relationships.yaml` `past_partners`.
+**Involvements.** Relationships are involvements, not a label (attraction spec
+8.1). A pawn can have several at once. Each has its own fields (agreement,
+living together, partner sex), and events marked `per_involvement` roll once a
+year for each ongoing involvement, reading and setting that involvement's
+`inv.*` fields. `state.relationship` (single, dating, cohabiting, married) is
+derived from the involvements by data rules whenever one changes; nothing sets
+it directly. Ongoing involvements are written as `inv0.*`, `inv1.*`, ..., which
+`any_inv.` conditions read. History entries about a partner carry the
+involvement's index.
+
+At the end, each involvement becomes a record (`Partner`): its fields, how it
+ended, sex, age gap, standing, availability, and a derived seed for promoting
+the partner to a full pawn. The attributes come from `relationships.yaml`
+`past_partners`.
 
 ### 3. Adult traits (spec section 6)
 
@@ -142,6 +152,7 @@ number, stored in the pawn's `Facts`. Rules in the data files read facts by key.
 | `mother.`, `father.`, `parents.same.` | Starting point | `mother.education` |
 | `household.`, `surroundings.`, `climate.` | Starting point | `household.wealth` |
 | `age`, `cal_year`, `stage`, `place.` | Life | where and when the pawn is, during the simulation and at the end |
+| `inv.`, `any_inv.`, `inv0.` | Life | the involvement a per-involvement event is about; any ongoing involvement; each ongoing involvement at the end |
 | `state.` | Life | `state.career`, `state.relationship`, `state.children` |
 | `life.` | Life | `life.parental_divorce` = never / once / ...; `life.after_high_school` = university |
 | `channel.` | Life | raw channel sums |

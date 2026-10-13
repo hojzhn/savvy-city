@@ -46,6 +46,18 @@ public sealed class Effects
     public string[] Reset { get; init; } = [];
     public string[] RecordFirstAge { get; init; } = [];
     public (string Channel, double Delta)[] Channels { get; init; } = [];
+    public bool StartInvolvement { get; init; }
+    public bool EndInvolvement { get; init; }
+}
+
+public sealed record InvolvementField(string Id, string[] Values, string Initial);
+
+/// <summary>Compiled involvement section: per-involvement fields and the rules that derive state.relationship.</summary>
+public sealed class InvolvementTables
+{
+    public required InvolvementField[] Fields { get; init; }
+    public required string[] LabelValues { get; init; }
+    public required DeriveRule[] LabelRules { get; init; }
 }
 
 /// <summary>Fork option, event outcome, or reading.</summary>
@@ -80,6 +92,7 @@ public sealed class LifeItem
     public Frequency Frequency { get; init; }
     public int Max { get; init; }
     public bool MustHappen { get; init; }
+    public bool PerInvolvement { get; init; }
     public Condition[] Requires { get; init; } = [];
 
     // Conditions
@@ -118,6 +131,8 @@ public sealed class LifeTables
     public required string[] Channels { get; init; }
     public required LifeItem[] Items { get; init; }
     public double ReadingTemperature { get; init; } = 1;
+    /// <summary>Null when life.yaml has no involvement section.</summary>
+    public InvolvementTables? Involvement { get; init; }
 
     public Stage StageAt(int age) => Stages.LastOrDefault(s => s.From <= age) ?? Stages[0];
 

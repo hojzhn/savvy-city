@@ -59,8 +59,6 @@ public class CityTests
                 if (orientation == "straight") Assert.NotEqual(p.Sex, partner.Sex);
                 if (orientation == "gay") Assert.Equal(p.Sex, partner.Sex);
             }
-            if (p.Partners.Count > 0 && !p.Partners[^1].Ended)
-                Assert.Equal(p.Partners[^1].Sex == p.Sex ? "same" : "opposite", p.Facts["state.partner_sex"]);
         }
     }
 

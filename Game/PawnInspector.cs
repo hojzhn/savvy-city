@@ -105,6 +105,9 @@ public partial class PawnInspector : VBoxContainer
 
     // ------------------------------------------------------------ actions
 
+    /// <summary>Show the pawn for a seed, for example a city resident.</summary>
+    public void ShowSeed(ulong seed) => SetSeed(seed);
+
     void SetSeed(ulong seed)
     {
         _seed = seed;
@@ -216,6 +219,8 @@ public partial class PawnInspector : VBoxContainer
         if (part == PawnPart.Adult)
             return Host.Catalog?.Get(key)?.Section ?? "Adult traits";
         string prefix = key == "year" ? "pawn" : key.Contains('.') ? key[..key.IndexOf('.')] : "clock";
+        if (prefix.Length > 3 && prefix.StartsWith("inv") && int.TryParse(prefix[3..], out int n))
+            return $"Ongoing involvement {n + 1}";
         return SectionTitles.GetValueOrDefault(prefix, Capitalize(prefix));
     }
 

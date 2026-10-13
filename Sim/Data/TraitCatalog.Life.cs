@@ -76,6 +76,45 @@ public sealed partial class TraitCatalog
             HowDetermined = "Built in: 'yes' once state.location is the game's city.",
         });
 
+        if (life.Involvement is { } inv)
+        {
+            var labelReads = inv.LabelRules.SelectMany(r => r.When).Select(c => GameData.ConditionSchemaKey(c.Key))
+                .Where(k => k != "state.relationship").Distinct().ToList();
+            list.Add(new TraitInfo
+            {
+                Key = "state.relationship", Section = "Relationships", Label = "relationship", Kind = TraitKind.Life,
+                FactKeys = ["state.relationship"], Values = inv.LabelValues, Reads = labelReads,
+                HowDetermined = "Derived, never stored: the label for the pawn's ongoing involvements, from the first matching label rule in " +
+                                "life.yaml (" + string.Join("; ", inv.LabelRules.Select(r =>
+                                    r.When.Length == 0 ? $"otherwise {r.Value}" : $"{string.Join(" and ", r.When.Select(c => c.Text))} → {r.Value}")) +
+                                "). Re-derived whenever an involvement starts, changes or ends.",
+            });
+            list.Add(new TraitInfo
+            {
+                Key = "state.involvements", Section = "Relationships", Label = "involvements", Kind = TraitKind.Life,
+                FactKeys = ["state.involvements"], HowDetermined = "Built in: how many involvements are ongoing.",
+            });
+            list.Add(new TraitInfo
+            {
+                Key = "state.relationship_years", Section = "Relationships", Label = "relationship years", Kind = TraitKind.Life,
+                FactKeys = ["state.relationship_years"],
+                HowDetermined = "Built in: years of the longest ongoing involvement (0 without one), counted at the end of each year.",
+            });
+            foreach (var field in inv.Fields)
+                list.Add(new TraitInfo
+                {
+                    Key = $"inv.{field.Id}", Section = "Relationships", Label = $"involvement {field.Id}", Kind = TraitKind.Life,
+                    FactKeys = [], Values = field.Values,
+                    HowDetermined = $"One per involvement, starting as '{field.Initial}'. Per-involvement events read and set it as inv.{field.Id}; " +
+                                    $"other rules read any_inv.{field.Id} (true if any ongoing involvement matches)." + ChangedBy($"inv.{field.Id}"),
+                });
+            list.Add(new TraitInfo
+            {
+                Key = "inv.years", Section = "Relationships", Label = "involvement years", Kind = TraitKind.Life, FactKeys = [],
+                HowDetermined = "Built in: years since the involvement started, counted at the end of each year.",
+            });
+        }
+
         foreach (var (item, dto) in life.Items.Zip(source.Items))
         {
             var reads = ReadsOf(item);

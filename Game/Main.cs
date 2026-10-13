@@ -19,14 +19,22 @@ public partial class Main : Control
         root.AddChild(tabs);
         var inspector = new PawnInspector { Host = host, Name = "Pawn inspector" };
         var traits = new TraitManager { Host = host, Name = "Traits" };
+        var city = new CityView { Host = host, Name = "City" };
         tabs.AddChild(Ui.Pad(inspector, 8));
         tabs.AddChild(Ui.Pad(traits, 8));
+        tabs.AddChild(Ui.Pad(city, 8));
         tabs.SetTabTitle(0, "Pawn inspector");
         tabs.SetTabTitle(1, "Traits");
+        tabs.SetTabTitle(2, "City");
         inspector.EditTraitRequested += key =>
         {
             tabs.CurrentTab = 1;
             traits.SelectTrait(key);
+        };
+        city.OpenPawnRequested += seed =>
+        {
+            tabs.CurrentTab = 0;
+            inspector.ShowSeed(seed);
         };
 
         var footer = new HBoxContainer();
