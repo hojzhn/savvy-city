@@ -86,6 +86,36 @@ public sealed class AdultItemDto
     public List<BeliefDto>? Beliefs { get; set; }
     /// <summary>History items (or item:outcome) a pawn might hide, with their stigma (0-1).</summary>
     public Dictionary<string, double>? Hideable { get; set; }
+
+    // friend_sources (social circle and health 3.4, 3.5)
+    /// <summary>Numeric adult trait holding the number of close friends.</summary>
+    public string? Count { get; set; }
+    /// <summary>Numeric adult trait the friends' standing is drawn around (circle status).</summary>
+    public string? Status { get; set; }
+    public double StatusSd { get; set; }
+    /// <summary>Chance a close friend has the pawn's own sex.</summary>
+    public double SameSex { get; set; }
+    /// <summary>Dirichlet concentration: high keeps shares near the weights, low spreads them out.</summary>
+    [DefaultValue(2.0)]
+    public double Concentration { get; set; } = 2;
+    public List<FriendSourceDto>? Sources { get; set; }
+    /// <summary>Logit of a close friend's closeness (0-1).</summary>
+    public RateLikeDto? Closeness { get; set; }
+}
+
+/// <summary>Where friends come from. Dirichlet weight = weight × exp(weights + mods).</summary>
+public sealed class FriendSourceDto
+{
+    public string Id { get; set; } = "";
+    public string? Note { get; set; }
+    [DefaultValue(1.0)]
+    public double Weight { get; set; } = 1;
+    public Dictionary<string, object>? Weights { get; set; }
+    public List<AdultModDto> Mods { get; set; } = new();
+    /// <summary>Ages at which friends from this source are met (met_to is capped at the current age).</summary>
+    public int MetFrom { get; set; }
+    [DefaultValue(200)]
+    public int MetTo { get; set; } = 200;
 }
 
 public sealed class AdultModDto

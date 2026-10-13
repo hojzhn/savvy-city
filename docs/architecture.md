@@ -65,6 +65,11 @@ Every fired event, resolved fork and logged condition change becomes a
 impact score, and the ids of the earlier entries that caused it. Relationship
 tags on entries build the pawn's partner list.
 
+At the end, each partner in the list becomes a record (`Partner`): sex (from
+the `same_sex` / `opposite_sex` outcome of the start event), age gap, standing,
+availability, and a derived seed for promoting the partner to a full pawn. The
+attributes come from `relationships.yaml` `past_partners`.
+
 ### 3. Adult traits (spec section 6)
 
 [AdultProfiler.cs](../Sim/Adult/AdultProfiler.cs)
@@ -83,6 +88,47 @@ calibration batch (600 pawns by default), measures each z-scale score's raw
 mean and SD in file order, and stores them. This happens once per load of the
 data, in about a second.
 
+## The city
+
+[CityGenerator.cs](../Sim/Population/CityGenerator.cs) links pawns into one
+city from a **world seed**. Each pawn still runs its own pipeline; the city
+connects them afterwards.
+
+```
+world seed ─▶ World (M, T, W, Q, readouts) ─▶ pawns ─▶ couples ─▶ households
+                                                    ─▶ ex and friend links ─▶ starting state
+```
+
+1. **World.** [World.cs](../Sim/Relations/World.cs) draws the fixed matrices
+   every pawn shares: M, T and W for the aura and taste, Q for the direction of
+   desire, and one readout vector per behavior (attraction spec 7.2, 8.3). The
+   profile vector x is z-scored against a calibration batch (`aura.yaml`
+   `calibration_size`), measured once per data load, like the adult norms.
+2. **Couples (pool matching).** Pawns are generated from
+   `hash(world seed, "pawn", n)`. A pawn in a relationship pairs with the best
+   waiting pawn whose status matches, who is the sex its history says, and whose
+   relationship length is within `years_tolerance`; the cost adds the
+   relationship-length gap, how far the age gap is from what each history
+   expects, and the difference in children. Unmatched pawns wait. Once the city
+   is full, more candidates are generated (up to `overflow_factor` × size) to
+   fill the waiting slots, and candidates nobody needs are discarded. Partnered
+   pawns still unmatched are dropped, so every current partner is a resident.
+   A couple's shared length is the mean of the two histories; its children are
+   the larger count.
+3. **Households.** Cohabiting and married couples share one; everyone else lives
+   in their own, of the kind their life simulation ended with.
+4. **Links.** Each past-partner record and close-friend record rolls a link
+   chance; on a hit, it links to the best resident who fits (sexes, years,
+   matching stories of how it ended, age gaps, standing), and that resident's
+   matching record links back. Records that stay unlinked keep their seed.
+5. **Starting state (spec section 9).**
+   [StartingState.cs](../Sim/Relations/StartingState.cs) builds the runtime's
+   records: a relationship record (8.1) for each couple, linked friendship, and
+   recent breakup between residents; each pawn's mood, threat, grudges and goal
+   pressure; and what each pawn knows about the people it has a record with.
+   Derived values (tendencies, readiness, dissatisfaction) are computed when
+   read, never stored.
+
 ## Facts
 
 Every generated value is a **fact**: a key and either a categorical id or a
@@ -90,7 +136,8 @@ number, stored in the pawn's `Facts`. Rules in the data files read facts by key.
 
 | Prefix | Part | Examples |
 | ----- | ----- | ----- |
-| `pawn.`, `year` | Starting point | `pawn.sex`, `pawn.threat_sensitivity`, `pawn.birth_location` |
+| `pawn.`, `year` | Starting point | `pawn.sex`, `pawn.threat_sensitivity`, `pawn.birth_location`, `pawn.height_z` |
+| `identity.` | Starting point | `identity.orientation` |
 | `context.` | Starting point | `context.norms_sex` (birth context) |
 | `mother.`, `father.`, `parents.same.` | Starting point | `mother.education` |
 | `household.`, `surroundings.`, `climate.` | Starting point | `household.wealth` |
@@ -151,6 +198,10 @@ last good data when a saved file is broken.
 | `Sim/Data/FamilyEdits.cs` | Renames that update every reference across the data files. |
 | `Sim/Data/YamlIO.cs` | YAML reading and writing (used by the Traits tab when it saves). |
 | `Sim/Generation/PopulationStats.cs` | Value shares and modifier fire rates across many pawns. |
+| `Sim/Population/CityGenerator.cs`, `City.cs`, `CityText.cs` | The linked city: couples, households, ex and friend links. |
+| `Sim/Relations/World.cs` | The world seed's matrices; profile vector, aura, taste, desire direction. |
+| `Sim/Relations/StartingState.cs` | Spec section 9: relationship records, pawn state and knowledge at the start of play. |
+| `Sim/Data/GameData.Relations.cs` | Loading and checking `relationships.yaml` and `aura.yaml`. |
 | `Sim/Generation/PawnText.cs`, `TraceText.cs` | Plain-text output for the CLI and the inspector. |
 | `Game/DataHost.cs` | Loads data and reloads it when a file is saved. |
 | `Game/PawnInspector.cs` | The pawn inspector tab. |

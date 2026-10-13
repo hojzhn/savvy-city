@@ -29,6 +29,11 @@ static class TestData
         GameData.FromYaml(ReadFile("config.yaml"), ReadFile("locations.yaml"), ReadFile("eras.yaml"), familyYaml,
                           ReadFile("life.yaml"), ReadFile("adult.yaml"));
 
+    /// <summary>Real data with a custom relationships.yaml and aura.yaml.</summary>
+    public static GameData WithRelations(string relationshipsYaml, string auraYaml) =>
+        GameData.FromYaml(ReadFile("config.yaml"), ReadFile("locations.yaml"), ReadFile("eras.yaml"), ReadFile("family.yaml"),
+                          ReadFile("life.yaml"), ReadFile("adult.yaml"), relationshipsYaml, auraYaml);
+
     /// <summary>Real data with a custom life.yaml, and no adult traits (they read life items).</summary>
     public static GameData WithLife(string lifeYaml) =>
         GameData.FromYaml(ReadFile("config.yaml"), ReadFile("locations.yaml"), ReadFile("eras.yaml"), ReadFile("family.yaml"), lifeYaml);

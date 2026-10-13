@@ -6,18 +6,21 @@ Last updated 2026-10-13.
 
 | Spec part | Status | Where |
 | ----- | ----- | ----- |
-| 1. Seed | Done, plus affiliation and the current city | `StartingPointGenerator.cs`, `config.yaml`, `locations.yaml` |
+| 1. Seed | Done, plus affiliation, social insight, body fields and the current city | `StartingPointGenerator.cs`, `config.yaml`, `locations.yaml` |
 | 2. Context | Done (birth context) | `locations.yaml`, `eras.yaml` |
-| 3. Family and household | Done, plus parent ethnicity | `family.yaml` |
-| 4. Life simulation | Done: all 4.7 items, 4.11 invariants | `LifeSimulator.cs`, `life.yaml` |
+| 3. Family and household | Done, plus parent ethnicity and orientation | `family.yaml` |
+| 4. Life simulation | Done: all 4.7 items, 4.11 invariants; partner sex and past-partner records | `LifeSimulator.cs`, `life.yaml`, `relationships.yaml` |
 | 5. Event interpretation | Done as readings that write channels | `life.yaml` readings |
-| 6. Adult profile | Done: 6.4–6.9, with calibration | `AdultProfiler.cs`, `adult.yaml` |
+| 6. Adult profile | Done: 6.4–6.9, with calibration; revealed preferences read past partners | `AdultProfiler.cs`, `adult.yaml` |
 | Political Alignment | Done: axes, consistency, issues, stakes, salience | `adult.yaml` beliefs group |
 | Lifestyle and gender roles | Added beyond the spec: alt / mainstream / trad, egalitarian / flexible / traditional | `adult.yaml` beliefs group |
-| Social circle and health | Mostly done (see gaps below) | `adult.yaml` |
+| Social circle and health | Done, including friend sources and close-friend records | `adult.yaml` |
+| Linked city | Done: couples by pool matching, households, ex and friend links | `Sim/Population/`, `relationships.yaml` |
+| 7.2 Profile vector, aura, taste | Fields and world matrices done; no attraction scores yet | `World.cs`, `aura.yaml` |
+| 9. Starting state | Done as the bridge into the runtime (rewritten in the spec) | `StartingState.cs`, `relationships.yaml` |
 | Debug app | Pawn inspector and Traits tab | `Game/` |
 
-92 tests pass (`dotnet test`).
+108 tests pass (`dotnet test`).
 
 ## Population snapshot
 
@@ -38,6 +41,11 @@ targets; the numbers behind them are placeholders.
 | Self-rated health excellent / poor | 19% / 6% |
 | Tiny social circle | 19% |
 
+A city of 1,000 (world seed 1, `PawnCli --city 1000 1`): 1,093 residents, 385
+couples (5% same-sex), 6 partnered pawns dropped for want of a partner. 20% of
+past partners and 42% of close friends are residents. Built in about 6 seconds
+after a 2-second calibration.
+
 ## Placeholder data
 
 Every rate and weight in `Data/` is a rough estimate, chosen to give plausible
@@ -46,30 +54,38 @@ to research and tune:
 
 * Locations: real settings, ethnic and religious shares, norms by period.
 * Base rates in `eras.yaml` (divorce, marriage, job loss, first sex) by year.
+* Orientation shares, and same-sex marriage law by place and year (one
+  placeholder mod for New York).
 * Wealth at the top end: only 0.7% of pawns end up wealthy.
 * Leaving home: few pawns live with family in their 20s.
 * Kink and health condition prevalence.
+* Everything in `relationships.yaml` and `aura.yaml`.
 
 ## Known gaps
 
-* **Attraction engine and compatibility.** Referenced throughout the spec but
-  not specified there yet. Spec sections 7 and 8 are missing.
-* **Section 9, presentation and starting state** (honesty, disclosure
-  thresholds, mood, loneliness at the start of play): not built.
-* **Social circle:** friend sources and close-friend records are not built.
-* **Partner preferences:** the wound's "want" bonus (spec 6.9) is not applied;
-  revealed preferences don't use past partners' attributes, because past
-  partners are not simulated.
+* **Hidden resentment at the start.** With 8.3's rule, H settles at
+  50 × (1 − voice) × τ, so 95% of couples start above 0.5 and nearly all would
+  pass 1 (and leave) without the starting cap. The spec needs a decision before
+  the runtime is tuned.
+* **Desire size at the start is provisional** (from starting satisfaction)
+  until the attraction engine exists.
+* **Couples are reconciled, not identical:** the two histories can differ by up
+  to 2 years in relationship length and in children.
+* **Roommates and partners' friends** are not linked into shared households or
+  merged circles.
+* **Renames in the Traits tab** don't reach relationships.yaml or aura.yaml.
+* **The wound's "want" bonus** (spec 6.9) is not applied to partner preferences.
 * **Golden-seed tests** (spec 4.12, 6.13): not added while the data is still
   being tuned.
-* **Life and adult traits are read-only in the Traits tab;** edit them in YAML.
+* **The debug app** has no city view yet; use `PawnCli --city`.
 * **The game itself:** no player, dates or dialogue yet.
 
 ## Next steps
 
-1. Write the attraction engine spec (sections 7 and 8), then build it.
-2. Build section 9 (presentation and starting state).
-3. Replace the placeholder locations and rates with researched data for the
-   game's setting.
-4. Add golden-seed tests once the numbers settle.
-5. Start on the player-facing game.
+1. Decide how hidden resentment should behave over long relationships (8.3).
+2. Build attraction (7.1–7.6) and the version 1 runtime core (8.2–8.4, thoughts
+   and the why view), with the tuning harness running on the linked city.
+3. Check that the life simulation's marriages and divorces land near what the
+   runtime produces from the same pawns.
+4. Replace the placeholder locations and rates with researched data.
+5. Add golden-seed tests once the numbers settle.

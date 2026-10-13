@@ -98,6 +98,24 @@ public sealed partial class TraitCatalog
             });
         }
 
+        var body = cfg.Body;
+        foreach (var b in body.Traits)
+        {
+            list.Add(new TraitInfo
+            {
+                Key = $"parent.{b}_z", Section = "Body", Label = $"parent {b}", Kind = TraitKind.Seed,
+                FactKeys = [$"mother.{b}_z", $"father.{b}_z"],
+                HowDetermined = $"Random N(0, 1) for each parent, with correlation {Num(body.Assort)} between them (body.assort in config.yaml).",
+            });
+            list.Add(new TraitInfo
+            {
+                Key = $"pawn.{b}_z", Section = "Body", Label = b, Kind = TraitKind.Seed,
+                FactKeys = [$"pawn.{b}_z"], Reads = [$"parent.{b}_z"],
+                HowDetermined = $"Inherited (attraction spec 7.2): {Num(body.ParentWeight)} × (mother + father) + N(0, {Num(body.Noise)}), " +
+                                "on the z-scale within sex. The aura reads it.",
+            });
+        }
+
         foreach (var (field, values) in ContextSchema.Values)
         {
             string how = field switch

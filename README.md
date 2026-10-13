@@ -22,6 +22,7 @@ winget install --id GodotEngine.GodotEngine.Mono -e
 | Run with a console for logs | `.\run.ps1 -Console` |
 | Open the Godot editor | `.\run.ps1 -Editor` |
 | Print a pawn | `dotnet run --project Tools/PawnCli -- 42` |
+| Generate a linked city | `dotnet run --project Tools/PawnCli -- --city 1000 7` |
 | Run the tests | `dotnet test` |
 
 ## How a pawn is made
@@ -40,6 +41,11 @@ before it:
 
 The same seed and data files always produce the same pawn.
 
+A **city** links pawns together from a world seed: couples are paired so both
+partners are real residents, past partners and close friends link to residents
+who fit them, and the city's starting state (spec section 9) is built for the
+runtime. The same world seed always produces the same city.
+
 ## Repository layout
 
 | Path | Contents |
@@ -48,7 +54,7 @@ The same seed and data files always produce the same pawn.
 | [Sim/](Sim/) | The generator: a plain C# library with no Godot code. |
 | [Sim.Tests/](Sim.Tests/) | Unit, invariant and population tests. |
 | [Game/](Game/) | Godot project: the debug app (pawn inspector and Traits tab). |
-| [Tools/PawnCli/](Tools/PawnCli/) | Command-line tool for printing pawns and population statistics. |
+| [Tools/PawnCli/](Tools/PawnCli/) | Command-line tool for printing pawns, population statistics and cities. |
 | [docs/](docs/) | Design spec and project documentation. |
 
 ## Documentation
@@ -57,6 +63,7 @@ The same seed and data files always produce the same pawn.
 | ----- | ----- |
 | [docs/spec/you-will-date.md](docs/spec/you-will-date.md) | The original design spec (also as .docx). |
 | [docs/spec/social-circle-and-health.md](docs/spec/social-circle-and-health.md) | Spec addition: social circle, physical health, adult mental health. |
+| [docs/spec/attraction-and-relationships.md](docs/spec/attraction-and-relationships.md) | Spec sections 7 and 8: attraction engine and relationship systems. |
 | [docs/architecture.md](docs/architecture.md) | How the generator works: the pipeline, facts, determinism, validation. |
 | [docs/data-files.md](docs/data-files.md) | Reference for every YAML data file. |
 | [docs/tools.md](docs/tools.md) | The debug app, the CLI, scripts and tests. |

@@ -165,6 +165,13 @@ items:
     values: [single, dating, cohabiting, married]
     initial_value: single
 
+  - id: partner_sex
+    note: The current partner's sex relative to the pawn's, set when a relationship starts (from identity.orientation).
+    type: condition
+    kind: state
+    values: [none, opposite, same]
+    initial_value: none
+
   - id: cheated_on
     note: Set when a partner cheated. The adult profile turns this into a dealbreaker (spec 6.8).
     type: condition
@@ -854,6 +861,15 @@ items:
           add: -1.2
         - when: { age: ">=40" }
           add: -0.4
+    outcomes:
+      - id: opposite_sex
+        note: Most bisexual people with a partner have an opposite-sex partner (PLACEHOLDER weight, about 4 in 5).
+        requires: { identity.orientation: [straight, bisexual] }
+        weights: { identity.orientation: { bisexual: 1.4 } }
+        effects: { set: { state.partner_sex: opposite } }
+      - id: same_sex
+        requires: { identity.orientation: [gay, bisexual] }
+        effects: { set: { state.partner_sex: same } }
     effects:
       set: { state.relationship: dating }
     tags: [relationship_start]
@@ -890,6 +906,9 @@ items:
           add: -0.5
         - when: { state.children: ">=1" }
           add: 0.5
+        - note: Same-sex marriage became legal in New York in 2011. PLACEHOLDER until the law is a location table.
+          when: { state.partner_sex: same, cal_year: "<2011" }
+          add: -4.0
     effects:
       set: { state.relationship: married, state.left_home: "yes" }
       record_first_age: [state.age_left_home]
@@ -943,7 +962,7 @@ items:
       - id: other
         weight: 7
     effects:
-      set: { state.relationship: single }
+      set: { state.relationship: single, state.partner_sex: none }
       channels: { rupture: 0.4 }
     readings:
       - id: people_leave
@@ -982,7 +1001,7 @@ items:
       - id: money
         weight: 15
     effects:
-      set: { state.relationship: single }
+      set: { state.relationship: single, state.partner_sex: none }
       channels: { rupture: 0.8 }
     readings:
       - id: failure

@@ -11,6 +11,19 @@ public sealed class Config
     public int AgeMax { get; set; }
     public double MaleBirthRate { get; set; }
     public TemperamentConfig Temperament { get; set; } = new();
+    public BodyConfig Body { get; set; } = new();
+}
+
+/// <summary>Inherited body fields (attraction spec 7.2): each becomes "pawn.&lt;id&gt;_z".</summary>
+public sealed class BodyConfig
+{
+    public List<string> Traits { get; set; } = new();
+    /// <summary>Weight of each parent's value in the pawn's.</summary>
+    public double ParentWeight { get; set; } = 0.5;
+    /// <summary>SD of the pawn's own normal noise.</summary>
+    public double Noise { get; set; } = 0.6;
+    /// <summary>Correlation between the mother's and father's values.</summary>
+    public double Assort { get; set; }
 }
 
 public sealed class TemperamentConfig

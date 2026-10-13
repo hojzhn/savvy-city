@@ -30,8 +30,26 @@ public sealed class HistoryEntry
     public string? Explain { get; init; }
 }
 
-/// <summary>One past or current partner, built from relationship-tagged history entries.</summary>
-public sealed record Partner(int StartAge, int? EndAge, string? EndReason, bool Married);
+/// <summary>
+/// One past or current partner, built from relationship-tagged history entries.
+/// Partners are records, not pawns: the seed lets the game promote one to a full
+/// pawn later, and the city links a partner to a resident when one fits.
+/// </summary>
+public sealed record Partner(int StartAge, int? EndAge, string? EndReason, bool Married)
+{
+    /// <summary>"male" or "female", from the relationship's start (state.partner_sex).</summary>
+    public string Sex { get; init; } = "";
+    /// <summary>Partner's age minus the pawn's.</summary>
+    public double AgeGap { get; init; }
+    /// <summary>Partner's social standing, z-scale. Feeds the revealed-preference history pull (spec 6.8).</summary>
+    public double Status { get; init; }
+    /// <summary>How emotionally available the partner was, 0–1.</summary>
+    public double Availability { get; init; } = 0.5;
+    /// <summary>Derived seed for promoting this partner to a full pawn.</summary>
+    public ulong Seed { get; init; }
+    public bool Ended => EndAge is not null;
+    public int Years(int currentAge) => Math.Max(0, (EndAge ?? currentAge) - StartAge);
+}
 
 public sealed class LifeResult
 {
@@ -555,7 +573,7 @@ public sealed class LifeSimulator
             if (e.Tags.Contains("relationship_start"))
             {
                 if (open is not null) partners.Add(open with { EndAge = e.Age, EndReason = "overlap" });
-                open = new Partner(e.Age, null, null, false);
+                open = DescribePartner(new Partner(e.Age, null, null, false), partners.Count, e.Outcome == "same_sex");
             }
             else if (e.Tags.Contains("relationship_married") && open is not null)
                 open = open with { Married = true };
@@ -567,5 +585,24 @@ public sealed class LifeSimulator
         }
         if (open is not null) partners.Add(open);
         return partners;
+    }
+
+    /// <summary>Who the partner was: sex, age gap, standing and availability, drawn around the pawn (relationships.yaml past_partners).</summary>
+    Partner DescribePartner(Partner p, int index, bool sameSex)
+    {
+        string sex = _f["pawn.sex"];
+        string other = sex == "male" ? "female" : "male";
+        p = p with { Sex = sameSex ? sex : other, Seed = Rng.SubSeed(_seed, "partner", index.ToString(CultureInfo.InvariantCulture)) };
+        if (_data.PastPartners is not { } t) return p;
+
+        var src = t.Source;
+        var rng = Rng.For(_seed, "life", "partner", index.ToString(CultureInfo.InvariantCulture));
+        double gapMean = sameSex ? 0 : sex == "female" ? src.MaleOlderYears : -src.MaleOlderYears;
+        return p with
+        {
+            AgeGap = gapMean + src.AgeGapSd * rng.NextNormal(),
+            Status = src.StatusMatch * t.OwnStatus.Eval(_f) + src.StatusSd * rng.NextNormal(),
+            Availability = MathUtil.Sigmoid(t.Availability.Eval(_f, rng)),
+        };
     }
 }

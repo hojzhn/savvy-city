@@ -58,7 +58,8 @@ traits.
   saved version.
 * **Saving:** Save is disabled while the draft has an error, which names the
   rule at fault. Renames update every rule that refers to the renamed trait or
-  value, in all data files. The previous version of each written file is kept
+  value in family.yaml, life.yaml and adult.yaml; check relationships.yaml and
+  aura.yaml by hand. The previous version of each written file is kept
   as `<file>.bak`. Discard throws away unsaved edits.
 * Life and adult traits are shown read-only; edit them in `life.yaml` and
   `adult.yaml` and the tab reloads.
@@ -76,10 +77,11 @@ dotnet run --project Tools/PawnCli -- <args>
 | `42 --why household.wealth` | Adds an explanation of how that value was rolled (repeatable). |
 | `42 --set mother.religion=muslim` | Forces a starting-point value (repeatable). |
 | `--stats 10000 household.shape state.career` | Value shares across 10,000 pawns. Works with `--set`. |
+| `--city 1000 7` | A linked city of about 1,000 residents from world seed 7: couples, households, ex and friend links, and starting-state numbers (spec section 9). Takes a few seconds. |
 
 ## Tests
 
-`dotnet test` runs the suite in [Sim.Tests/](../Sim.Tests/) (about 20 seconds).
+`dotnet test` runs the suite in [Sim.Tests/](../Sim.Tests/) (about a minute).
 
 | File | Covers |
 | ----- | ----- |
@@ -91,3 +93,4 @@ dotnet run --project Tools/PawnCli -- <args>
 | `FamilyEditsTests` | Renames across family.yaml, life.yaml and adult.yaml. |
 | `LifeTests` | Life simulation: spec 4.11 invariants, population rates, readings, validation. |
 | `AdultTests` | Adult profile: spec 6.12 invariants, z-scale normalization, doc targets, the small social effect on mental health, validation. |
+| `CityTests` | Body fields, social insight, orientation and partner sex, past partners, friend records; the linked city (partners point back, households, mutual links, determinism, aura and taste); starting-state invariants; relationships.yaml and aura.yaml validation. |

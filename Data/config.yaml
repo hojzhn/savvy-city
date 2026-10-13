@@ -10,7 +10,13 @@
 # temperament.traits: each trait becomes the fact "pawn.<id>", a 0-1 population
 #   percentile that family.yaml conditions can read (e.g. pawn.threat_sensitivity: ">=0.7").
 # temperament.correlations: mild correlations between traits (spec step 1).
-#   Pairs left out are uncorrelated.
+#   Pairs left out are uncorrelated. Add new traits at the end of the list, so
+#   the existing traits keep their draws.
+#
+# body.traits: each becomes "pawn.<id>_z" (z-scale, within sex), inherited as
+#   parent_weight x (mother + father) + N(0, noise) (attraction spec 7.2). The
+#   parents' values ("mother.<id>_z", "father.<id>_z") are drawn with
+#   correlation assort between them.
 #
 # The Traits editor in the game rewrites this file when it saves, keeping this
 # header but not comments below it.
@@ -21,8 +27,15 @@ age_min: 21
 age_max: 45
 male_birth_rate: 0.512
 temperament:
-  traits: [threat_sensitivity, reward_drive, self_control, affiliation]
+  traits: [threat_sensitivity, reward_drive, self_control, affiliation, social_insight]
   correlations:
     - { a: threat_sensitivity, b: self_control, r: -0.20 }
     - { a: reward_drive, b: self_control, r: -0.15 }
     - { a: reward_drive, b: affiliation, r: 0.20 }
+    - { a: affiliation, b: social_insight, r: 0.25 }
+    - { a: threat_sensitivity, b: social_insight, r: 0.10 }
+body:
+  traits: [height, build]
+  parent_weight: 0.5
+  noise: 0.6
+  assort: 0.2

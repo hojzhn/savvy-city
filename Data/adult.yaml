@@ -75,6 +75,11 @@ groups:
         scale: z_raw
         sigma: 0.5
         weights: { adult.novelty_seeking: 0.4, adult.neuroticism: -0.3, adult.conscientiousness: 0.2 }
+      - id: social_insight
+        note: Attraction spec 8.6. How well the pawn reads other people. The base trait plus some self-insight.
+        type: score
+        scale: z_raw
+        weights: { z.social_insight: 0.7, adult.self_insight: 0.3 }
 
   # ----------------------------------------------------------------- attachment
   - id: attachment
@@ -705,7 +710,7 @@ groups:
         type: blend
         stated: adult.pref_partner_status
         base: 0.5
-        weights: { wchannel.scarcity: 0.3, adult.anxiety: 0.15 }
+        weights: { wchannel.scarcity: 0.3, adult.anxiety: 0.15, hist.ex_status: 0.15 }
       - id: pref_partner_availability
         note: How emotionally available the pawn says a partner should be (0-1). Most people say very.
         type: score
@@ -717,7 +722,7 @@ groups:
         type: blend
         stated: adult.pref_partner_availability
         base: 0.8
-        weights: { adult.anxiety: -0.35, wchannel.care_inconsistency: -0.2 }
+        weights: { adult.anxiety: -0.35, wchannel.care_inconsistency: -0.2, hist.ex_availability: 0.5 }
 
       - id: dealbreakers
         type: dealbreakers
@@ -882,6 +887,50 @@ groups:
           - id: connector
             weight: 0.6
             weights: { adult.extraversion: 0.5, adult.novelty_seeking: 0.3, adult.close_friends: 0.05 }
+      - id: friend_sources
+        note: Social circle and health 3.4 and 3.5. Where friends come from, then a record for each close friend. The city links records to residents.
+        type: friend_sources
+        count: adult.close_friends
+        status: adult.circle_status
+        status_sd: 0.5
+        same_sex: 0.7
+        concentration: 2
+        closeness: { base: 0.4, weights: { adult.agreeableness: 0.2, adult.avoidance: -0.3 } }
+        sources:
+          - id: childhood
+            weight: 1.0
+            weights: { pawn.born_locally: { "yes": 1.0, "no": -0.8 }, state.extended_family_contact: { frequent: 0.3 } }
+            met_from: 5
+            met_to: 13
+          - id: school_or_university
+            weight: 1.5
+            weights: { state.education: { bachelors: 0.4, masters: 0.5, doctorate_professional: 0.5 }, age: -0.03 }
+            met_from: 14
+            met_to: 26
+          - id: work
+            weight: 1.5
+            weights: { state.career: { unemployed: -1.0, homemaker: -1.0, student: -0.5 }, age: 0.03 }
+            met_from: 18
+          - id: neighborhood
+            weight: 0.5
+            weights: { place.urbanicity: { inner_suburb: 0.3, outer_suburb: 0.5, small_town: 0.6, rural: 0.6 } }
+            met_from: 18
+          - id: religious_community
+            weight: 0.5
+            weights: { adult.religiosity: 2.0 }
+            met_from: 10
+          - id: hobby_or_scene
+            weight: 1.0
+            weights: { adult.novelty_seeking: 0.4, place.urbanicity: { urban_core: 0.3 } }
+            met_from: 16
+          - id: online
+            weight: 0.5
+            weights: { adult.extraversion: -0.4, age: -0.03 }
+            met_from: 16
+          - id: partners_friends
+            weight: 0.5
+            weights: { state.relationship: { single: -1.0, cohabiting: 0.4, married: 0.5 } }
+            met_from: 16
       - id: social_support
         type: score
         scale: unit

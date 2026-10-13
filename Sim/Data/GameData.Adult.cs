@@ -34,6 +34,9 @@ public sealed partial class GameData
         _schema["hist.partner_count"] = null;
         _schema["hist.longest_relationship"] = null;
         _schema["hist.moved_as_adult"] = ["yes", "no"];
+        _schema["hist.ex_count"] = null;
+        _schema["hist.ex_status"] = null;
+        _schema["hist.ex_availability"] = null;
 
         var items = new List<AdultItem>();
         var groups = new List<(string, string, string?)>();
@@ -73,8 +76,8 @@ public sealed partial class GameData
             "score" => AdultType.Score, "count" => AdultType.Count, "blend" => AdultType.Blend,
             "roll" => AdultType.Roll, "choice" => AdultType.Choice, "derive" => AdultType.Derive,
             "list" => AdultType.List, "goals" => AdultType.Goals, "issues" => AdultType.Issues,
-            "dealbreakers" => AdultType.Dealbreakers, "inner_life" => AdultType.InnerLife,
-            _ => throw new DataException($"{where}: type must be score, count, blend, roll, choice, derive, list, goals, issues, dealbreakers or inner_life"),
+            "dealbreakers" => AdultType.Dealbreakers, "inner_life" => AdultType.InnerLife, "friend_sources" => AdultType.FriendSources,
+            _ => throw new DataException($"{where}: type must be score, count, blend, roll, choice, derive, list, goals, issues, dealbreakers, inner_life or friend_sources"),
         };
 
         List<AddModDto> AddMods(List<AdultModDto> mods, string w) => mods.Select((m, i) => m.Mul is null
@@ -234,6 +237,34 @@ public sealed partial class GameData
                 {
                     Dealbreakers = rules, HardAt = d.HardAt,
                     Outputs = rules.Select(r => ($"adult.{d.Id}.{r.Id}", (IReadOnlyList<string>?)levels)).ToList(),
+                };
+            }
+            case AdultType.FriendSources:
+            {
+                bool Numeric(string? k) => k is not null && k.StartsWith("adult.") && _schema.TryGetValue(k, out var v) && v is null;
+                Need(Numeric(d.Count), "count must name an earlier numeric adult trait (the number of close friends)");
+                Need(Numeric(d.Status), "status must name an earlier numeric adult trait (the circle's standing)");
+                Need(d.Sources is { Count: > 0 }, "friend_sources needs sources");
+                Need(d.SameSex is >= 0 and <= 1, "same_sex must be between 0 and 1");
+                Need(d.StatusSd >= 0, "status_sd can't be negative");
+                Need(d.Concentration > 0, "concentration must be above 0");
+                var sources = d.Sources!.Select(s =>
+                {
+                    string w = $"{where} source '{s.Id}'";
+                    if (!LifeId.IsMatch(s.Id)) throw new DataException($"{w}: ids use a-z, 0-9 and _");
+                    if (s.Weight <= 0) throw new DataException($"{w}: weight must be above 0");
+                    if (s.MetFrom < 5) throw new DataException($"{w}: met_from must be at least 5 (no friend is known longer than age − 5)");
+                    if (s.MetTo < s.MetFrom) throw new DataException($"{w}: met_to is before met_from");
+                    return new FriendSource(s.Id, s.Note, s.Weight, F(0, s.Weights, s.Mods, w), s.MetFrom, s.MetTo);
+                }).ToArray();
+                Need(sources.Select(s => s.Id).Distinct().Count() == sources.Length, "duplicate source ids");
+                Need(sources.Any(s => s.MetFrom <= Config.AgeMin), $"at least one source must be open by age_min ({Config.AgeMin})");
+                return common with
+                {
+                    Sources = sources, CountKey = d.Count, StatusKey = d.Status, StatusSd = d.StatusSd, SameSex = d.SameSex,
+                    Concentration = d.Concentration, Closeness = Opt(d.Closeness, where + " closeness") ?? Formula.Zero,
+                    Outputs = sources.Select(s => ($"adult.{d.Id}.{s.Id}", (IReadOnlyList<string>?)null))
+                        .Append(("adult.friend_closeness", null)).ToList(),
                 };
             }
             default: // InnerLife

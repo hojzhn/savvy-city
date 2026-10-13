@@ -35,32 +35,41 @@ public sealed partial class GameData
         string? Optional(string file) =>
             File.Exists(Path.Combine(dataDir, file)) ? File.ReadAllText(Path.Combine(dataDir, file)) : null;
         return FromYaml(Read("config.yaml"), Read("locations.yaml"), Read("eras.yaml"), Read("family.yaml"),
-            Optional("life.yaml"), Optional("adult.yaml"));
+            Optional("life.yaml"), Optional("adult.yaml"), Optional("relationships.yaml"), Optional("aura.yaml"));
     }
 
     /// <param name="life">life.yaml text, or null to generate pawns without a life simulation.</param>
     /// <param name="adult">adult.yaml text, or null to generate pawns without adult traits.</param>
+    /// <param name="relationships">relationships.yaml text, or null for no past-partner details, city linking or starting state.</param>
+    /// <param name="aura">aura.yaml text, or null for no profile vector, aura or taste.</param>
     public static GameData FromYaml(string config, string locations, string eras, string family,
-                                    string? life = null, string? adult = null) =>
+                                    string? life = null, string? adult = null,
+                                    string? relationships = null, string? aura = null) =>
         new(YamlIO.Parse<Config>("config.yaml", config),
             YamlIO.Parse<LocationsFile>("locations.yaml", locations),
             YamlIO.Parse<ErasFile>("eras.yaml", eras),
             YamlIO.Parse<FamilyFile>("family.yaml", family),
             life is null ? null : YamlIO.Parse<Life.LifeFile>("life.yaml", life),
-            adult is null ? null : YamlIO.Parse<Adult.AdultFile>("adult.yaml", adult));
+            adult is null ? null : YamlIO.Parse<Adult.AdultFile>("adult.yaml", adult),
+            relationships is null ? null : YamlIO.Parse<Relations.RelationshipsFile>("relationships.yaml", relationships),
+            aura is null ? null : YamlIO.Parse<Relations.AuraFile>("aura.yaml", aura));
 
     /// <summary>Build from already-parsed files, such as edited copies. The objects are kept, not copied.</summary>
     public static GameData FromFiles(Config config, LocationsFile locations, ErasFile eras, FamilyFile family,
-                                     Life.LifeFile? life = null, Adult.AdultFile? adult = null) =>
-        new(config, locations, eras, family, life, adult);
+                                     Life.LifeFile? life = null, Adult.AdultFile? adult = null,
+                                     Relations.RelationshipsFile? relationships = null, Relations.AuraFile? aura = null) =>
+        new(config, locations, eras, family, life, adult, relationships, aura);
 
     // The parsed files this data came from, for editors to copy and change.
     public LocationsFile LocationsSource { get; }
     public ErasFile ErasSource { get; }
     public FamilyFile FamilySource { get; }
     public Life.LifeFile? LifeSource { get; }
+    public Relations.RelationshipsFile? RelationshipsSource { get; }
+    public Relations.AuraFile? AuraSource { get; }
 
-    GameData(Config config, LocationsFile locations, ErasFile eras, FamilyFile family, Life.LifeFile? life, Adult.AdultFile? adult)
+    GameData(Config config, LocationsFile locations, ErasFile eras, FamilyFile family, Life.LifeFile? life, Adult.AdultFile? adult,
+             Relations.RelationshipsFile? relationships, Relations.AuraFile? aura)
     {
         Config = config;
         LocationsSource = locations;
@@ -68,6 +77,8 @@ public sealed partial class GameData
         FamilySource = family;
         LifeSource = life;
         AdultSource = adult;
+        RelationshipsSource = relationships;
+        AuraSource = aura;
         Locations = locations.Locations;
         Eras = eras.EconomicEras;
 
@@ -79,7 +90,11 @@ public sealed partial class GameData
         DeclareBuiltInFacts();
         Family = family.Groups.Select(CompileGroup).ToList();
         if (life is not null) Life = CompileLife(life);
+        // Past partners are built at the end of the life simulation, before the adult profile reads them.
+        if (relationships is not null && Life is not null) PastPartners = CompilePastPartners(relationships);
         if (adult is not null) Adult = CompileAdult(adult);
+        if (relationships is not null && Adult is not null) Relations = CompileRelations(relationships, PastPartners!);
+        if (aura is not null && Adult is not null) Aura = CompileAura(aura);
     }
 
     public string EconomicEra(int year, LocationPeriod period) =>
@@ -136,14 +151,16 @@ public sealed partial class GameData
                 throw new ArgumentException($"'{key}' is set by the life simulation and can't be overridden");
             if (IsAdultKey(key))
                 throw new ArgumentException($"'{key}' is an adult trait, computed from everything before it, and can't be overridden");
-            if (!_schema.TryGetValue(key, out var allowed))
+            if (!_schema.TryGetValue(SchemaKey(key), out var allowed))
                 throw new ArgumentException($"unknown fact '{key}'");
             if (allowed is not null)
                 throw new ArgumentException($"'{key}' is categorical; override it with one of: {string.Join(", ", allowed)}");
             if (key == "year" && (value < MinBirthYear || value > MaxBirthYear || value != Math.Floor(value)))
                 throw new ArgumentException($"year must be a whole number from {MinBirthYear} to {MaxBirthYear}");
-            if (key.StartsWith("pawn.") && value is < 0 or > 1)
+            if (key.StartsWith("pawn.") && Config.Temperament.Traits.Contains(key[5..]) && value is < 0 or > 1)
                 throw new ArgumentException($"'{key}' must be between 0 and 1");
+            if (key.EndsWith("_z") && value is < -3 or > 3)
+                throw new ArgumentException($"'{key}' is on the z-scale and must be between -3 and 3");
         }
     }
 
@@ -156,6 +173,15 @@ public sealed partial class GameData
             throw new DataException("config.yaml: age_min and age_max must satisfy 0 < age_min <= age_max");
         if (c.MaleBirthRate is <= 0 or >= 1)
             throw new DataException("config.yaml: male_birth_rate must be between 0 and 1");
+        var b = c.Body;
+        if (b.Traits.Distinct().Count() != b.Traits.Count)
+            throw new DataException("config.yaml: body.traits has duplicates");
+        foreach (var t in b.Traits)
+            if (!LifeId.IsMatch(t)) throw new DataException($"config.yaml: body trait '{t}' must use a-z, 0-9 and _");
+        if (b.ParentWeight < 0 || b.Noise < 0)
+            throw new DataException("config.yaml: body.parent_weight and body.noise can't be negative");
+        if (b.Assort is <= -1 or >= 1)
+            throw new DataException("config.yaml: body.assort must be between -1 and 1");
     }
 
     double[,] BuildCholesky()
@@ -286,6 +312,11 @@ public sealed partial class GameData
         _schema["pawn.born_locally"] = ["yes", "no"];
         _schema["pawn.sex"] = ContextSchema.Sexes.ToHashSet();
         foreach (var t in Config.Temperament.Traits) _schema[$"pawn.{t}"] = null;
+        foreach (var t in Config.Body.Traits)
+        {
+            _schema[$"pawn.{t}_z"] = null;
+            _schema[$"parent.{t}_z"] = null;
+        }
         foreach (var (k, v) in ContextSchema.Values) _schema[$"context.{k}"] = v.ToHashSet();
     }
 

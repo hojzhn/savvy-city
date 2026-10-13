@@ -30,6 +30,7 @@ public static class PawnText
         ("household", "Household"),
         ("surroundings", "Surroundings"),
         ("climate", "Home climate"),
+        ("identity", "Identity"),
     ];
 
     public static string Describe(Pawn p, GameData? data = null)
@@ -42,6 +43,10 @@ public static class PawnText
         Part(sb, "STARTING POINT");
         sb.AppendLine("Temperament: " + string.Join(", ", p.Temperament.Select(kv =>
             string.Create(CultureInfo.InvariantCulture, $"{Pretty(kv.Key)} {kv.Value:0.00}"))));
+        var body = p.Facts.Numeric.Where(kv => kv.Key.StartsWith("pawn.") && kv.Key.EndsWith("_z")).ToList();
+        if (body.Count > 0)
+            sb.AppendLine("Body: " + string.Join(", ", body.Select(kv =>
+                string.Create(CultureInfo.InvariantCulture, $"{Pretty(kv.Key[5..^2])} {kv.Value:+0.00;-0.00}"))));
         foreach (var (prefix, title) in StartSections)
             Section(sb, title, Rows(p, k => k.StartsWith(prefix + ".") && !k.EndsWith(".role"), prefix.Length + 1));
 
@@ -59,6 +64,8 @@ public static class PawnText
                 sb.AppendLine().AppendLine("Partners");
                 foreach (var partner in p.Partners)
                     sb.AppendLine($"  {partner.StartAge}–{partner.EndAge?.ToString(CultureInfo.InvariantCulture) ?? "now"}"
+                        + (partner.Sex.Length > 0 ? $", {partner.Sex}" : "")
+                        + string.Create(CultureInfo.InvariantCulture, $", {Math.Abs(partner.AgeGap):0} years {(partner.AgeGap >= 0 ? "older" : "younger")}")
                         + (partner.Married ? ", married" : "")
                         + (partner.EndReason is null ? "" : $", ended: {Pretty(partner.EndReason)}"));
             }

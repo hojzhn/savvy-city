@@ -1,0 +1,58 @@
+# Aura and taste (docs/spec/attraction-and-relationships.md, 7.2).
+# STARTING VALUES FOR TUNING.
+#
+# Every pawn has a profile vector x built from the facts below. Each entry is
+# z-scored against a calibration batch of calibration_size pawns, so it has
+# mean 0 and SD 1. "logit(key)" takes the logit of a 0-1 value first.
+#
+# At world start the world seed fills fixed matrices that every pawn shares:
+#   M (2K x D) projects x onto the aura, z = Mx + N(0, aura_noise)
+#   T and W (K x D) give each pawn's taste: what phase offset it wants on each
+#     harmonic (plus N(0, taste_noise)), and how much each harmonic matters
+# No harmonic has a name or a meaning.
+#
+# harmonics: K, the number of harmonics in an aura.
+#
+# The spec lists the vector as "D = 26", but its own list has 28 entries; this
+# file is the authority, and D is however many entries it lists.
+
+harmonics: 6
+aura_noise: 0.3
+taste_noise: 0.5
+calibration_size: 400
+
+profile_vector:
+  # personality
+  - adult.neuroticism
+  - adult.extraversion
+  - adult.novelty_seeking
+  - adult.conscientiousness
+  - adult.agreeableness
+  - adult.self_insight
+  # attachment
+  - adult.anxiety
+  - adult.avoidance
+  # sexuality
+  - logit(adult.libido)
+  # beliefs
+  - adult.economic
+  - adult.cultural
+  - adult.authority
+  - adult.religiosity
+  - adult.money_saver_spender
+  # history: the eleven channel sums
+  - wchannel.threat_shift
+  - wchannel.reward_shift
+  - wchannel.control_shift
+  - wchannel.affiliation_shift
+  - wchannel.care_inconsistency
+  - wchannel.care_coldness
+  - wchannel.rupture
+  - wchannel.secure_bond
+  - wchannel.scarcity
+  - wchannel.constraint
+  - wchannel.shame
+  # body
+  - age
+  - pawn.height_z
+  - pawn.build_z

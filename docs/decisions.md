@@ -70,9 +70,9 @@ departs from or adds to the spec ([you-will-date.md](spec/you-will-date.md)).
   Alignment section asks, rather than the z-scale used for personality.
 * **Issue positions run from -1 (progressive) to +1 (traditional)** for every
   issue, so positions compare across issues.
-* **Revealed preferences** use spec 6.8's formula, but the history pull comes
-  from channels and attachment rather than past partners' attributes, because
-  past partners are not simulated as people.
+* **Revealed preferences** use spec 6.8's formula. The history pull comes from
+  channels, attachment and, since 2026-10-13, past partners' standing and
+  availability (see "Linked city" below).
 * **The wound's "want" is not yet added to partner preferences** (spec 6.9 asks
   for a bonus); it is stored for the attraction engine.
 * **Regret** counts only the latest choice of a re-chosen fork (like a career),
@@ -87,8 +87,54 @@ departs from or adds to the spec ([you-will-date.md](spec/you-will-date.md)).
   flexible / traditional), with cutoffs set for about 20% at each end.
 * **Physical health, social circle and adult mental health** follow
   [social-circle-and-health.md](spec/social-circle-and-health.md), written for
-  this project. Friend sources and close-friend records from that document are
-  not built yet.
+  this project. Friend sources and close-friend records were added on
+  2026-10-13.
+
+## Linked city and starting state (2026-10-13)
+
+Building toward the attraction spec ([attraction-and-relationships.md](spec/attraction-and-relationships.md))
+and spec section 9.
+
+* **Couples by pool matching.** Each pawn keeps its own life simulation; the
+  city pairs pawns whose current relationships already line up (same status,
+  each the sex the other's history says, relationship lengths within 2 years),
+  rather than conditioning a spouse's generation or simulating couples jointly.
+  Small differences remain between the two histories: a couple's shared length
+  is the mean, and its children the larger count. Partnered pawns no one fits
+  are dropped (under 1% at 1,000 residents), which slightly favours easy-to-match
+  histories.
+* **Orientation is a starting-point trait** (`identity.orientation` in
+  family.yaml), not an adult trait in 6.7, because the life simulation needs it
+  when each relationship starts. A relationship's start sets
+  `state.partner_sex`. Same-sex marriage before 2011 (New York) is strongly
+  discouraged by a placeholder life.yaml mod. Bisexual pawns pick
+  opposite-sex partners about 4 times in 5.
+* **Past partners are records, promoted on demand,** like close friends. Each
+  has a sex, age gap, standing, availability and seed. They now feed revealed
+  preferences (`hist.ex_status`, `hist.ex_availability`), closing the gap noted
+  under 6.8 above. A record links to a resident when one fits (about 20% do).
+* **Body fields live in config.yaml** (`body`), next to temperament, rather
+  than the spec's aura.yaml, because they are drawn at step 1. Height and build
+  are z-scores within sex; parents' values are stored as `mother.height_z` and
+  `father.height_z`.
+* **Social insight is a fifth temperament trait,** appended last so the other
+  four keep their draws. The spec's inheritance from parents is not used,
+  because parents have no temperament; `adult.social_insight` is
+  0.7 × the base trait + 0.3 × self-insight, as in 8.6.
+* **The profile vector has 28 entries,** not the 26 the spec states; its own list
+  counts 28. aura.yaml is the authority.
+* **Readout vectors** (8.3) are drawn N(0, 1) per entry; the spec doesn't give a
+  distribution.
+* **Section 9 rewritten** as the bridge into the runtime (see the spec). The
+  size of desire at the start is provisional (from starting satisfaction) until
+  the attraction engine exists, and drive leaves out the known × emo term.
+* **Hidden resentment is capped at the start** (0.9). Built week by week with
+  8.3's rule, H settles at 50 × (1 − voice) × τ, so almost every couple of a
+  few years would start above 1 and leave on the first tick. This needs a
+  decision in the spec before the runtime is tuned.
+* **Close friends get a `friend_sources` adult item:** Dirichlet shares, then
+  records. `adult.friend_closeness` is written but social support doesn't read
+  it yet, to keep the current support and loneliness targets.
 
 ## Tools
 

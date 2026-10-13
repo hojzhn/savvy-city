@@ -12,6 +12,8 @@ to be plausible, not researched figures. See [status.md](status.md).
 `config.yaml`, `locations.yaml`, `life.yaml` and `adult.yaml` when it saves. It
 keeps each file's header comment block but not comments further down. Use the
 `note:` field on groups, items, modifiers and options instead.
+`relationships.yaml` and `aura.yaml` are never rewritten, so comments there are
+safe; renames in the Traits tab don't reach them either.
 
 ## Shared syntax
 
@@ -52,7 +54,9 @@ Global settings.
 | `present_year`, `age_min`, `age_max` | Pawn ages; birth years spread evenly over the range. |
 | `male_birth_rate` | Chance a pawn is male. |
 | `temperament.traits` | Temperament trait ids. Each becomes the 0–1 percentile fact `pawn.<id>`. |
-| `temperament.correlations` | `{ a, b, r }` pairs. The set must form a valid correlation matrix. |
+| `temperament.correlations` | `{ a, b, r }` pairs. The set must form a valid correlation matrix. Add new traits at the end of the list so existing traits keep their draws. |
+| `body.traits` | Inherited body fields. Each becomes `pawn.<id>_z` (z-scale, within sex), with the parents' values in `mother.<id>_z` and `father.<id>_z`. |
+| `body.parent_weight`, `body.noise`, `body.assort` | The pawn's value is `parent_weight × (mother + father) + N(0, noise)`; `assort` is the correlation between the parents' values. |
 
 ## locations.yaml
 
@@ -112,6 +116,10 @@ groups:
 After a per-parent group, `parents.same.<item>` (yes/no) says whether both
 parents share a value.
 
+The last group, `identity`, holds the pawn's own traits that are set before
+life begins: `identity.orientation` (straight, bisexual, gay). The life
+simulation reads it when a relationship starts, to set `state.partner_sex`.
+
 ## life.yaml
 
 The life simulation (spec section 4). The header lists every field; this is
@@ -163,7 +171,9 @@ this year by items above it, and changes made by items below it as of last
 year.
 
 **Tags.** `relationship_start`, `relationship_married` and `relationship_end`
-build the partner list.
+build the partner list. A `relationship_start` event's outcome `same_sex` or
+`opposite_sex` sets the partner's sex. Each partner also gets an age gap, a
+standing and an availability from `relationships.yaml` `past_partners`.
 
 **Summaries.** At the end, each event writes `life.<id>` (never, once, twice,
 3_plus) and each fork writes its last choice (or not_reached). Adult traits can
@@ -187,5 +197,37 @@ file order. The header lists every field.
 | `issues` | `adult.<id>.<issue>`, `..._salience` | Positions from -1 (progressive) to +1 (traditional), from the political axes, personal `stakes`, and noise × (1 − consistency). |
 | `dealbreakers` | `adult.<id>.<rule>` | none, soft or hard (hardness at or above `hard_at`). |
 | `inner_life` | `adult.core_wound`, `wound_impact`, `private_belief`, `want`, `need`, `regret`, `secret_count` | The core wound is the negative event with the highest impact above `wound_threshold`; `beliefs` map its reading to a belief, want and need. `hideable` lists events (or `item:outcome`) a pawn may keep secret, with their stigma. |
+| `friend_sources` | `adult.<id>.<source>`, `adult.friend_closeness` | Friend source shares from a Dirichlet (each source's `weight × exp(weights + mods) × concentration`), then one record per close friend (`count`): a source the pawn was old enough for (`met_from`, `met_to`), years known, closeness (logit from `closeness`), standing around `status` (SD `status_sd`), and sex (the pawn's own with chance `same_sex`). |
 
 `calibration_size` sets how many pawns are generated to normalize z-scale scores.
+
+The adult step also prepares `hist.ex_count`, `hist.ex_status` and
+`hist.ex_availability` from past partners (weighted by years together), for the
+revealed-preference history pull (spec 6.8).
+
+## relationships.yaml
+
+Relationships after the life simulation: past partners, linking pawns into one
+city, and the starting state the runtime begins from (attraction spec section
+8, spec section 9). Formulas are `base + weights + mods + N(0, sigma)`, read from
+the pawn's facts like adult scores.
+
+| Section | Meaning |
+| ----- | ----- |
+| `pattern_size`, `readouts` | 8.3: a relationship is a pattern P of `pattern_size` unnamed values. Each readout is `scale × sigmoid(r · P)`, with r drawn from the world seed. |
+| `tendencies` | 8.2: voice, sensitivity, exit floor and reaction, as `base + x × anxiety + y × avoidance`. |
+| `tolerance` | 8.4 `t_view` for each monogamy view. |
+| `past_partners` | Who each partner in the life history was: age gap (`male_older_years`, `age_gap_sd`), standing (around `own_status` by `status_match`, SD `status_sd`) and availability (a logit formula). These formulas run at the end of the life simulation, so they can only read starting-point and life facts. |
+| `city` | Pairing couples: `years_tolerance` (largest gap in relationship years), costs per year of relationship gap, year of unexpected age gap and child of difference, `max_cost`, and `overflow_factor` (extra candidates searched for missing partners, as a multiple of the city size). Linking: `ex_link_chance` and `friend_link_chance` per record (the linked share comes out at about twice this), and the largest friend age gap by source. |
+| `start` | Spec section 9. Satisfaction (logit), the provisional size of desire, exclusivity by monogamy view, agreement masses, investment, trust, open and hidden resentment, goal pressure, how fast projection gives way to observation, standing and power, friendship desire, harm and blame by how a relationship ended, mood, starting threat, and `knowledge` (fields, kinds, weights, lists and the secret rate). |
+
+## aura.yaml
+
+The aura and taste (attraction spec 7.2).
+
+| Field | Meaning |
+| ----- | ----- |
+| `harmonics` | K, harmonics per aura. |
+| `aura_noise`, `taste_noise` | SD of the per-pawn noise in the aura projection and in each taste offset. |
+| `calibration_size` | Pawns generated to z-score the profile vector and measure the mean amplitude. |
+| `profile_vector` | Numeric facts making up x. `logit(key)` takes the logit of a 0–1 value. The vector's length D is the number of entries. |

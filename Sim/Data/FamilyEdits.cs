@@ -174,7 +174,9 @@ public static class FamilyEdits
             .Concat(item.Disclosure?.Mods ?? [])
             .Concat((item.Entries ?? []).SelectMany(e => e.Mods.Concat(e.Intensity?.Mods ?? [])))
             .Concat((item.Goals ?? []).SelectMany(g => g.Mods))
-            .Concat((item.Dealbreakers ?? []).SelectMany(d => d.Hardness.Mods));
+            .Concat((item.Dealbreakers ?? []).SelectMany(d => d.Hardness.Mods))
+            .Concat((item.Sources ?? []).SelectMany(s => s.Mods))
+            .Concat(item.Closeness?.Mods ?? []);
         foreach (var m in mods) yield return m.When;
         foreach (var r in item.Rules ?? []) if (r.When is not null) yield return r.When;
         foreach (var o in item.Options ?? [])
@@ -198,12 +200,14 @@ public static class FamilyEdits
         maps.AddRange((item.Issues ?? []).Select(i => i.Axes));
         maps.AddRange((item.Dealbreakers ?? []).Select(d => d.Hardness.Weights));
         maps.AddRange((item.Options ?? []).Select(o => o.Weights));
+        maps.AddRange((item.Sources ?? []).Select(s => s.Weights));
+        maps.Add(item.Closeness?.Weights);
         return maps.OfType<Dictionary<string, object>>();
     }
 
     /// <summary>Fields that hold a single fact key.</summary>
     static IEnumerable<string> AdultKeyFields(AdultItemDto item) =>
-        (item.Inherit ?? []).Concat(new[] { item.Stated, item.Consistency }.OfType<string>());
+        (item.Inherit ?? []).Concat(new[] { item.Stated, item.Consistency, item.Count, item.Status }.OfType<string>());
 
     static IEnumerable<Dictionary<string, object>> LifeConditionMaps(LifeItemDto item)
     {

@@ -3,7 +3,7 @@ using YouWillDate.Sim.Life;
 
 namespace YouWillDate.Sim.Adult;
 
-public enum AdultType { Score, Count, Blend, Roll, Choice, Derive, List, Goals, Issues, Dealbreakers, InnerLife }
+public enum AdultType { Score, Count, Blend, Roll, Choice, Derive, List, Goals, Issues, Dealbreakers, InnerLife, FriendSources }
 public enum ScoreScale { Z, ZRaw, Unit, Signed, Clamp01 }
 
 /// <summary>base + Σ weights + Σ mods, read from the pawn's facts.</summary>
@@ -22,6 +22,7 @@ public sealed record Stake(string? Note, Condition[] When, double Shift, double 
 public sealed record Issue(string Id, string? Note, Term[] Axes, double BaseSalience, Stake[] Stakes);
 public sealed record Dealbreaker(string Id, string Rule, Condition[] When, Formula Hardness);
 public sealed record Belief(string? Item, string Reading, string Id, string Want, string Need);
+public sealed record FriendSource(string Id, string? Note, double Weight, Formula Formula, int MetFrom, int MetTo);
 
 public sealed record AdultItem
 {
@@ -68,6 +69,14 @@ public sealed record AdultItem
     public int MaxSecrets { get; init; }
     public Belief[] Beliefs { get; init; } = [];
     public IReadOnlyDictionary<string, double> Hideable { get; init; } = new Dictionary<string, double>();
+
+    public FriendSource[] Sources { get; init; } = [];
+    public string? CountKey { get; init; }
+    public string? StatusKey { get; init; }
+    public double StatusSd { get; init; }
+    public double SameSex { get; init; }
+    public double Concentration { get; init; }
+    public Formula? Closeness { get; init; }
 
     /// <summary>Every fact this item writes, with allowed values (null for numeric).</summary>
     public IReadOnlyList<(string Key, IReadOnlyList<string>? Values)> Outputs { get; init; } = [];

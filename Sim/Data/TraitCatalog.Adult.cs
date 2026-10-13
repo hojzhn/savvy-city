@@ -39,6 +39,25 @@ public sealed partial class TraitCatalog
         });
         list.Add(new TraitInfo
         {
+            Key = "hist.ex_count", Section = "Adult inputs", Label = "past partners", Kind = TraitKind.Adult,
+            FactKeys = ["hist.ex_count"], HowDetermined = "Number of partners in the history whose relationship ended.",
+        });
+        list.Add(new TraitInfo
+        {
+            Key = "hist.ex_status", Section = "Adult inputs", Label = "past partners' standing", Kind = TraitKind.Adult,
+            FactKeys = ["hist.ex_status"],
+            HowDetermined = "Mean social standing (z-scale) of past partners, weighted by years together (spec 6.8 history pull). " +
+                            "Each partner's standing is drawn around the pawn's own (relationships.yaml past_partners). 0 without past partners.",
+        });
+        list.Add(new TraitInfo
+        {
+            Key = "hist.ex_availability", Section = "Adult inputs", Label = "past partners' availability", Kind = TraitKind.Adult,
+            FactKeys = ["hist.ex_availability"],
+            HowDetermined = "Mean emotional availability of past partners minus 0.5, weighted by years together (spec 6.8 history pull). " +
+                            "Anxious, inconsistently raised pawns draw less available partners. 0 without past partners.",
+        });
+        list.Add(new TraitInfo
+        {
             Key = "hist.moved_as_adult", Section = "Adult inputs", Label = "moved as an adult", Kind = TraitKind.Adult,
             FactKeys = ["hist.moved_as_adult"], Values = ["yes", "no"],
             HowDetermined = "'yes' if the pawn moved to a new city at 18 or later.",
@@ -106,6 +125,10 @@ public sealed partial class TraitCatalog
             keys.AddRange(d.When.Select(c => c.Key));
             Formula(d.Hardness);
         }
+        foreach (var s in item.Sources) Formula(s.Formula);
+        Formula(item.Closeness);
+        if (item.CountKey is not null) keys.Add(item.CountKey);
+        if (item.StatusKey is not null) keys.Add(item.StatusKey);
         var own = item.Outputs.Select(o => o.Key).ToHashSet();
         return keys.Select(GameData.ConditionSchemaKey).Where(k => !own.Contains(k)).Distinct().ToList();
     }
@@ -135,6 +158,10 @@ public sealed partial class TraitCatalog
         AdultType.Issues => "Political Alignment: position = weighted political axes + personal stakes + noise × (1 − consistency), " +
                             "from -1 (progressive) to +1 (traditional). Salience rises with personal stakes.",
         AdultType.Dealbreakers => $"Dealbreakers (spec 6.8): a rule applies when its source condition holds. Hardness at or above {n(item.HardAt)} ends a date when the attribute is revealed; below that it lowers attraction.",
+        AdultType.FriendSources => $"Friend sources (social circle and health 3.4): shares drawn from a Dirichlet with weight × exp(weights) × {n(item.Concentration)} per source. " +
+                                   $"Then one record per close friend ({item.CountKey}): a source by share (only sources the pawn was old enough for), years known, " +
+                                   $"closeness, standing around {item.StatusKey}, and sex (same as the pawn's with chance {n(item.SameSex)}). " +
+                                   "friend_closeness is the friends' mean closeness.",
         _ => "Inner life (spec 6.9): the core wound is the negative event with the highest impact; its reading maps to a private belief, a want and a need. " +
              "Secrets come from hideable events and rarely disclosed list entries. Regret is the past choice whose road not taken looks best to the adult, or a missed goal.",
     };

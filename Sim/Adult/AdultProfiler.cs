@@ -13,6 +13,12 @@ public sealed record DealbreakerPick(string Id, string Rule, double Hardness, bo
 /// <summary>Source is "history:&lt;entry id&gt;" or "&lt;list&gt;.&lt;entry&gt;".</summary>
 public sealed record Secret(string Source, string Label, double DiscoveryDifficulty);
 
+/// <summary>
+/// One close friend (social circle and health 3.5). The seed lets the game promote
+/// the friend to a full pawn; the city links the record to a resident when one fits.
+/// </summary>
+public sealed record FriendRecord(string Source, int YearsKnown, double Closeness, double StatusZ, string Sex, ulong Seed);
+
 public sealed class InnerLife
 {
     public int? CoreWoundEntry { get; init; }
@@ -35,6 +41,7 @@ public sealed class AdultProfile
     public IReadOnlyList<IssuePick> Issues { get; init; } = [];
     public IReadOnlyList<DealbreakerPick> Dealbreakers { get; init; } = [];
     public InnerLife InnerLife { get; init; } = new();
+    public IReadOnlyList<FriendRecord> Friends { get; init; } = [];
 }
 
 /// <summary>
@@ -57,6 +64,7 @@ public sealed class AdultProfiler
     readonly List<GoalPick> _goals = new();
     readonly List<IssuePick> _issues = new();
     readonly List<DealbreakerPick> _dealbreakers = new();
+    readonly List<FriendRecord> _friends = new();
     InnerLife _inner = new();
 
     AdultProfiler(GameData data, ulong seed, Facts facts, LifeResult life, int age, List<RollTrace>? trace,
@@ -114,7 +122,7 @@ public sealed class AdultProfiler
 
     AdultProfile Result() => new()
     {
-        Picks = _picks, Goals = _goals, Issues = _issues, Dealbreakers = _dealbreakers, InnerLife = _inner,
+        Picks = _picks, Goals = _goals, Issues = _issues, Dealbreakers = _dealbreakers, InnerLife = _inner, Friends = _friends,
     };
 
     // ------------------------------------------------------------ inputs
@@ -134,6 +142,14 @@ public sealed class AdultProfiler
         SetNum("hist.partner_count", _life.Partners.Count, "partners in the relationship history");
         SetNum("hist.longest_relationship", _life.Partners.Count == 0 ? 0
             : _life.Partners.Max(p => (p.EndAge ?? _age) - p.StartAge), "years, longest relationship");
+        // Spec 6.8 history pull: past partners' attributes, weighted by how long each lasted.
+        var exes = _life.Partners.Where(p => p.Ended).ToList();
+        double years = exes.Sum(p => Math.Max(1, p.Years(_age)));
+        SetNum("hist.ex_count", exes.Count, "past partners whose relationship ended");
+        SetNum("hist.ex_status", exes.Count == 0 ? 0 : exes.Sum(p => Math.Max(1, p.Years(_age)) * p.Status) / years,
+            "past partners' standing (z-scale), weighted by years together; 0 without any");
+        SetNum("hist.ex_availability", exes.Count == 0 ? 0 : exes.Sum(p => Math.Max(1, p.Years(_age)) * (p.Availability - 0.5)) / years,
+            "past partners' emotional availability minus 0.5, weighted by years together; 0 without any");
         SetCat("hist.moved_as_adult",
             _life.History.Any(e => e.Age >= 18 && e.Changes.Any(c => c.Key == "state.location")) ? "yes" : "no",
             "moved to a new city at 18 or later");
@@ -156,6 +172,7 @@ public sealed class AdultProfiler
             case AdultType.Issues: ApplyIssues(item); break;
             case AdultType.Dealbreakers: ApplyDealbreakers(item); break;
             case AdultType.InnerLife: ApplyInnerLife(item); break;
+            case AdultType.FriendSources: ApplyFriendSources(item); break;
         }
     }
 
@@ -486,6 +503,47 @@ public sealed class AdultProfiler
             Belief = belief?.Id, Want = belief?.Want, Need = belief?.Need,
             Secrets = secrets, Regret = regret, RegretEntry = regretEntry, Doubt = regret is null ? 0 : best,
         };
+    }
+
+    // Social circle and health 3.4 and 3.5: friend source shares, then one record per close friend.
+    void ApplyFriendSources(AdultItem item)
+    {
+        var rng = RngFor(item.Id);
+        var sources = item.Sources;
+        var alphas = sources.Select(s => s.Weight * Math.Exp(Eval(s.Formula)) * item.Concentration).ToArray();
+        var draws = alphas.Select(a => MathUtil.Gamma(rng, a)).ToArray();
+        double total = draws.Sum();
+        var shares = draws.Select(g => total > 0 ? g / total : 1.0 / draws.Length).ToArray();
+        for (int i = 0; i < sources.Length; i++)
+            SetNum($"adult.{item.Id}.{sources[i].Id}", shares[i], string.Create(CultureInfo.InvariantCulture,
+                $"Dirichlet share; weight {sources[i].Weight:0.##} × exp(weights) × concentration {item.Concentration:0.##} = {alphas[i]:0.##}"));
+
+        int count = (int)(_f.Num(item.CountKey!) ?? 0);
+        double status = _f.Num(item.StatusKey!) ?? 0;
+        string sex = _f.Cat("pawn.sex") ?? "female";
+        string other = sex == "male" ? "female" : "male";
+        double closenessLogit = Eval(item.Closeness!);
+        for (int i = 0; i < count; i++)
+        {
+            string index = i.ToString(CultureInfo.InvariantCulture);
+            var r = RngFor(item.Id, "friend", index);
+            // Only sources the pawn has been old enough to meet friends through.
+            var open = shares.Select((s, k) => sources[k].MetFrom <= _age ? s : 0).ToArray();
+            int pick = r.PickWeighted(open);
+            if (pick < 0) pick = Array.FindIndex(sources, s => s.MetFrom <= _age);
+            var source = sources[pick];
+            int metAge = source.MetFrom + r.NextInt(0, Math.Min(source.MetTo, _age) - source.MetFrom + 1);
+            _friends.Add(new FriendRecord(
+                source.Id, _age - metAge,
+                MathUtil.Sigmoid(closenessLogit + 0.8 * r.NextNormal()),
+                status + item.StatusSd * r.NextNormal(),
+                r.Chance(item.SameSex) ? sex : other,
+                Rng.SubSeed(_seed, "friend", index)));
+        }
+        SetNum("adult.friend_closeness", _friends.Count == 0 ? 0 : _friends.Average(f => f.Closeness),
+            _friends.Count == 0 ? "no close friends"
+                : "mean closeness of the close friends: " + string.Join("; ", _friends.Select(f =>
+                    string.Create(CultureInfo.InvariantCulture, $"{f.Sex} from {f.Source.Replace('_', ' ')}, {f.YearsKnown} years, {f.Closeness:0.##}"))));
     }
 
     // ------------------------------------------------------------ output

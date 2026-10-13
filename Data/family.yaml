@@ -515,3 +515,18 @@ groups:
             mul: { parent_care: 2, acting_head_of_household: 3 }
           - when: { household.wealth: [affluent, wealthy] }
             mul: { none: 2.5, sibling_care: 0.5 }
+
+  # --------------------------------------------------------------- identity
+  - name: identity
+    note: The pawn's own traits that are set before life begins. Orientation decides who the pawn dates in the life simulation and who it can pair with in the city.
+    items:
+
+      - id: orientation
+        note: PLACEHOLDER shares, not researched. Younger cohorts identify as bisexual more often; women more often bisexual, men more often gay.
+        values: [straight, bisexual, gay]
+        weights: { straight: 90, bisexual: 6.5, gay: 3.5 }
+        mods:
+          - when: { year: ">=1990" }
+            mul: { bisexual: 1.6 }
+          - when: { pawn.sex: female }
+            mul: { bisexual: 1.6, gay: 0.6 }

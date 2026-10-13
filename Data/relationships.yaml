@@ -1,0 +1,175 @@
+# Relationships: past partners, linking pawns into one city, and the starting
+# state the runtime begins from (docs/spec/attraction-and-relationships.md,
+# section 8, and spec section 9). STARTING VALUES FOR TUNING: the attraction
+# spec's estimates where it gives them, rough guesses elsewhere.
+#
+# Formulas (own_status, availability, satisfaction, trust, standing, mood,
+# openness) are base + weights + mods + N(0, sigma), read from the pawn's facts
+# like adult.yaml scores. past_partners formulas run at the end of the life
+# simulation, so they can only read the starting point and life facts.
+#
+# Sections
+#   pattern_size, readouts  8.3: a relationship is a pattern P of pattern_size
+#                           unnamed values; each readout = scale x sigmoid(r . P)
+#                           with r drawn from the world seed
+#   tendencies              8.2: voice, sensitivity, exit floor and reaction
+#                           from anxiety (x) and avoidance (y)
+#   tolerance               8.4: t_view for each monogamy view
+#   past_partners           who each partner in the life history was
+#   city                    pairing couples, and linking exes and friends to residents.
+#                           Every record rolls its link chance and either side's
+#                           roll can link a pair, so the share of records linked
+#                           is about 2 x chance when residents who fit are plentiful
+#   start                   spec section 9: patterns, agreements, trust, grudges,
+#                           mood and knowledge at the start of play
+
+pattern_size: 4
+readouts:
+  - { id: contact_hours, scale: 12 }
+  - { id: sexrate, scale: 1 }
+  - { id: public, scale: 1 }
+  - { id: plans_weeks, scale: 26 }
+  - { id: shared, scale: 1 }
+
+tendencies:
+  voice: { x: 0.8, y: -1.0 }
+  sensitivity: { x: 1.0, y: -0.4 }
+  exit_floor: { base: 0.35, x: -0.1, y: -0.1 }
+  reaction: { x: 0.6, y: -0.6 }
+
+tolerance: { strict: 0.10, flexible: 0.30, open: 0.60, prefers_non_monogamy: 0.85 }
+
+past_partners:
+  male_older_years: 2
+  age_gap_sd: 4
+  own_status:
+    weights:
+      state.income: { none: -0.8, low: -0.4, high: 0.5, very_high: 1.0 }
+      state.education: { some_secondary: -0.4, secondary: -0.2, bachelors: 0.3, masters: 0.5, doctorate_professional: 0.7 }
+  status_match: 0.5
+  status_sd: 0.8
+  availability:
+    base: 0.8
+    sigma: 0.6
+    weights: { pawn.threat_sensitivity: -0.6, channel.care_inconsistency: -0.2 }
+
+city:
+  years_tolerance: 2
+  max_cost: 3
+  years_cost: 1
+  age_cost: 0.25
+  children_cost: 0.7
+  overflow_factor: 3
+  ex_link_chance: 0.12
+  friend_link_chance: 0.25
+  default_friend_age_gap: 12
+  friend_age_gap:
+    childhood: 3
+    school_or_university: 4
+    work: 15
+    neighborhood: 20
+    religious_community: 20
+    online: 15
+
+start:
+  satisfaction:
+    base: 1.0
+    sigma: 0.6
+    weights:
+      adult.neuroticism: -0.3
+      adult.anxiety: -0.2
+      adult.avoidance: -0.3
+      wchannel.secure_bond: 0.3
+      wchannel.rupture: -0.15
+      adult.mental_health_severity: { moderate: -0.3, severe: -0.6 }
+      state.relationship_years: -0.03
+  desire_base: 0.4
+  desire_from_satisfaction: 0.5
+  exclusivity: { strict: 1.0, flexible: 0.9, open: 0.4, prefers_non_monogamy: 0.1 }
+  define_after_years: 1
+  define_mass: 1
+  formalize_mass: 3
+  investment_years: 2
+  investment_per_child: 0.1
+  trust:
+    base: 0.7
+    sigma: 0.1
+    weights: { adult.anxiety: -0.05, adult.avoidance: -0.05, wchannel.secure_bond: 0.05, state.cheated_on: { "yes": -0.15 } }
+  resentment_from_dissatisfaction: 0.2
+  goal_pressure_goals: [marriage, children]
+  hidden_resentment_cap: 0.9
+  estimate_years: 2
+  standing:
+    weights:
+      state.income: { none: -0.8, low: -0.4, high: 0.5, very_high: 1.0 }
+      state.education: { some_secondary: -0.4, secondary: -0.2, bachelors: 0.3, masters: 0.5, doctorate_professional: 0.7 }
+      state.career: { professional: 0.3, manager_executive: 0.5, academic: 0.3, unemployed: -0.5 }
+  power_scale: 0.5
+  friend_desire: 0.3
+  recent_breakup_years: 2
+  default_harm: 0.2
+  default_blame: 0.3
+  harm:
+    cheated_on: 0.8
+    infidelity: 0.8
+    conflict: 0.5
+    money: 0.4
+    incompatible: 0.3
+    grew_apart: 0.3
+    moved_away: 0.3
+    drifted_apart: 0.2
+    cheated: 0.2
+    overlap: 0.2
+    other: 0.2
+  blame:
+    cheated_on: 0.9
+    infidelity: 0.9
+    conflict: 0.5
+    money: 0.4
+    overlap: 0.4
+    incompatible: 0.3
+    other: 0.3
+    drifted_apart: 0.2
+    grew_apart: 0.2
+    moved_away: 0.2
+    cheated: 0.1
+  mood:
+    base: 0.2
+    sigma: 0.3
+    weights:
+      adult.neuroticism: -0.3
+      adult.loneliness: -0.8
+      adult.social_support: 0.4
+      adult.mental_health_severity: { mild: -0.2, moderate: -0.5, severe: -0.9 }
+      adult.general_health: { fair: -0.1, poor: -0.3 }
+  mood_from_breakup: 0.5
+  threat_from_last_year: 1
+  knowledge:
+    rate: 1
+    secret_rate: 0.3
+    openness:
+      weights: { adult.extraversion: 0.5, adult.avoidance: -0.4, adult.neuroticism: -0.1 }
+    lists: [kinks, health_conditions]
+    fields:
+      - { key: age, kind: visible }
+      - { key: pawn.sex, kind: visible }
+      - { key: pawn.height_z, kind: visible }
+      - { key: pawn.build_z, kind: visible }
+      - { key: adult.lifestyle_label, kind: visible }
+      - { key: state.relationship, weight: 4 }
+      - { key: state.children, weight: 4 }
+      - { key: state.career, weight: 3 }
+      - { key: state.education, weight: 2 }
+      - { key: state.income, weight: 0.8 }
+      - { key: identity.orientation, weight: 2 }
+      - { key: adult.religion, weight: 1.5 }
+      - { key: adult.religiosity, weight: 1.2 }
+      - { key: adult.economic, weight: 1 }
+      - { key: adult.cultural, weight: 1 }
+      - { key: adult.authority, weight: 0.8 }
+      - { key: adult.monogamy_view, weight: 0.8 }
+      - { key: adult.pref_children, weight: 1 }
+      - { key: adult.attachment_style, weight: 0.5 }
+      - { key: adult.mental_health_severity, weight: 0.4 }
+      - { key: adult.private_belief, weight: 0.3 }
+      - { key: adult.want, weight: 0.3 }

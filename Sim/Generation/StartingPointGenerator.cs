@@ -50,6 +50,20 @@ sealed class StartingPointGenerator(GameData data)
                 "percentile; drawn jointly with the other traits (overriding one doesn't adjust the rest)");
         }
 
+        // Body fields: each parent's value, then the pawn's, inherited from both.
+        var body = cfg.Body;
+        foreach (var b in body.Traits)
+        {
+            var rng = Rng.For(seed, "seed", "body", b);
+            double e1 = rng.NextNormal(), e2 = rng.NextNormal(), e3 = rng.NextNormal();
+            string assort = body.Assort.ToString("0.##", CultureInfo.InvariantCulture);
+            double m = run.Num($"mother.{b}_z", () => e1, "N(0, 1)");
+            double f = run.Num($"father.{b}_z", () => Math.Clamp(body.Assort * m + Math.Sqrt(1 - body.Assort * body.Assort) * e2, -3, 3),
+                $"N(0, 1), correlation {assort} with the mother's");
+            run.Num($"pawn.{b}_z", () => Math.Clamp(body.ParentWeight * (m + f) + body.Noise * e3, -3, 3),
+                string.Create(CultureInfo.InvariantCulture, $"{body.ParentWeight} × (mother + father) + N(0, {body.Noise}), z-scale within sex"));
+        }
+
         // 2. Context: table lookups, no random draws.
         var period = location.PeriodFor(birthYear);
         string where = $"{location.Name}, period from {period.From}";

@@ -133,7 +133,8 @@ public partial class TraitManager : HSplitContainer
         try
         {
             _draftData = GameData.FromFiles(YamlIO.Clone(_config), YamlIO.Clone(_locations), data.ErasSource, YamlIO.Clone(_family),
-                _life is null ? null : YamlIO.Clone(_life), _adult is null ? null : YamlIO.Clone(_adult));
+                _life is null ? null : YamlIO.Clone(_life), _adult is null ? null : YamlIO.Clone(_adult),
+                data.RelationshipsSource, data.AuraSource);
             _catalog = new TraitCatalog(_draftData);
             _draftError = null;
             SetBanner("");

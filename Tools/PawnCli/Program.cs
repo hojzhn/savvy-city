@@ -7,6 +7,8 @@
 //                                      force values; everything downstream reacts
 //   PawnCli --stats 10000 household.shape [more keys]
 //                                      value shares across 10000 pawns (works with --set)
+//   PawnCli --city 1000 7              a linked city of about 1000 residents from world seed 7,
+//                                      with couples, links and starting-state numbers
 //
 // Run with: dotnet run --project Tools/PawnCli -- <args>
 
@@ -15,6 +17,7 @@ using System.Text;
 using YouWillDate.Sim;
 using YouWillDate.Sim.Data;
 using YouWillDate.Sim.Generation;
+using YouWillDate.Sim.Population;
 
 Console.OutputEncoding = Encoding.UTF8;
 
@@ -30,12 +33,13 @@ var gen = new PawnGenerator(data);
 var positional = new List<string>();
 var why = new List<string>();
 var overrides = new Facts();
-bool stats = false;
+bool stats = false, city = false;
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
         case "--stats": stats = true; break;
+        case "--city": city = true; break;
         case "--why" when i + 1 < args.Length: why.Add(args[++i]); break;
         case "--set" when i + 1 < args.Length:
             var parts = args[++i].Split('=', 2);
@@ -56,7 +60,8 @@ var options = new GenerateOptions { Overrides = overrides, Trace = why.Count > 0
 
 try
 {
-    if (stats) RunStats();
+    if (city) RunCity();
+    else if (stats) RunStats();
     else RunPawns();
 }
 catch (ArgumentException e) { return Fail(e.Message); }
@@ -84,6 +89,24 @@ void RunStats()
         foreach (var (v, hits) in c.OrderByDescending(kv => kv.Value))
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {v,-28} {100.0 * hits / n,6:0.0}%"));
     }
+}
+
+void RunCity()
+{
+    int size = positional.Count > 0 ? int.Parse(positional[0]) : 1000;
+    ulong worldSeed = positional.Count > 1 ? ulong.Parse(positional[1]) : 1;
+    if (data.Relations is null || data.Aura is null)
+    {
+        Console.Error.WriteLine("A city needs relationships.yaml and aura.yaml in the Data folder.");
+        return;
+    }
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    _ = data.ProfileNorms;
+    var calibration = watch.Elapsed;
+    var c = new CityGenerator(data).Generate(worldSeed, size);
+    Console.WriteLine(CityText.Describe(c));
+    Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+        $"Calibration {calibration.TotalSeconds:0.0} s, city {(watch.Elapsed - calibration).TotalSeconds:0.0} s"));
 }
 
 void RunPawns()

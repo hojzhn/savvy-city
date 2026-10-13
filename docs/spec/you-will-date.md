@@ -568,9 +568,31 @@ The validator rejects any profile that breaks these rules.
 * **Golden seeds.** A fixed set of seeds must reproduce stored profiles exactly.  
 * **Performance.** One profile computes in under \[N\] ms.
 
-### **9\. Presentation and starting state**
+### **9\. Starting state**
 
-The last step sets how the pawn meets the world. Honesty level comes from temperament and history. Each field in beliefs, sexuality, wants, and inner life gets a disclosure threshold tied to trust. The starting state sets current mood, loneliness, and dating options.
+The last step hands the pawns to the runtime systems in sections 7 and 8. It runs on a whole city, not one pawn at a time, because a relationship needs a real pawn on both ends. Honesty and disclosure thresholds are no longer part of this step: the knowledge model, claims, and fronts (8.1, 8.6) replace them.
+
+**Linking.** Each pawn runs its own life simulation. The city then pairs pawns whose current relationships line up: the same status, each the sex the other's history says, and relationship lengths within a tolerance. More pawns are generated until most open slots are filled. A pawn whose partner can't be found leaves the city, so every current partner is a resident. Cohabiting and married couples share a household. Each past partner and close friend stays a record with a seed, unless a resident fits it, in which case the record links to that resident and the resident's matching record links back.
+
+**Relationships.** Each couple, each friendship between residents, and each recent breakup between residents becomes a relationship record (8.1).
+
+| Life history | Starting record |
+| ----- | ----- |
+| Dating at least a year, or cohabiting | A Define anchor |
+| Married | Define and Formalize anchors |
+| Years together | started_day, weeks_stable, investment |
+| Monogamy views | The agreements' exclusivity level |
+| Each side's starting satisfaction | Where P sits between the two sides' D: each side's gap is (1 − satisfaction) / sensitivity |
+| Swallowed tension over the years | Hidden resentment H, built week by week as in 8.3, then capped |
+| How it ended, for a recent breakup | A dissolved record with the pattern drained, and grudges |
+
+Until the attraction engine exists, the size of each side's desire is provisional: it comes from starting satisfaction. The runtime recomputes D on its first tick.
+
+**Knowledge.** Each pawn knows what anyone can see about the people it has a record with: age, sex, build, presentation. It has learned disclosed facts with a chance that grows with years known, closeness, the field's weight, and how openly the other pawn talks about itself. Kinks follow each one's disclosure, and secrets follow their discovery difficulty. Nothing known at the start is a lie.
+
+**Pawn state.** The starting state sets each pawn's mood, loneliness (from 3.6 of the social circle spec), threat from last year's events, months since the last breakup, goal pressure, and a grudge toward each past partner (harm × blame, decayed since the breakup). Readiness (7.6) is derived from these and never stored.
+
+The data lives in relationships.yaml (start section). See docs/architecture.md for the code.
 
 ### **Output**
 
