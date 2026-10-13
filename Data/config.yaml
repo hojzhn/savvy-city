@@ -1,0 +1,23 @@
+# Global settings for pawn generation.
+#
+# age_min / age_max: age range of generated pawns. Birth years spread evenly
+#   across present_year - age_max .. present_year - age_min.
+#
+# temperament.traits: each trait becomes the fact "pawn.<id>", a 0-1 population
+#   percentile that family.yaml conditions can read (e.g. pawn.threat_sensitivity: ">=0.7").
+# temperament.correlations: mild correlations between traits (spec step 1).
+#   Pairs left out are uncorrelated.
+#
+# The Traits editor in the game rewrites this file when it saves, keeping this
+# header but not comments below it.
+
+present_year: 2026
+age_min: 21
+age_max: 45
+male_birth_rate: 0.512
+temperament:
+  traits: [threat_sensitivity, reward_drive, self_control, affiliation]
+  correlations:
+    - { a: threat_sensitivity, b: self_control, r: -0.20 }
+    - { a: reward_drive, b: self_control, r: -0.15 }
+    - { a: reward_drive, b: affiliation, r: 0.20 }

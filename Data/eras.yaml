@@ -1,0 +1,15 @@
+# National economic era by year. Each entry applies until the next one.
+# A location period can override this with its own economic_era.
+
+economic_eras:
+  - { from: 1975, era: stagnation }
+  - { from: 1983, era: boom }
+  - { from: 1990, era: recession }
+  - { from: 1992, era: steady_growth }
+  - { from: 1996, era: boom }
+  - { from: 2001, era: recession }
+  - { from: 2002, era: steady_growth }
+  - { from: 2008, era: crisis }
+  - { from: 2010, era: steady_growth }
+  - { from: 2020, era: recession }
+  - { from: 2021, era: steady_growth }

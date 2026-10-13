@@ -1,0 +1,185 @@
+# Birth locations. PLACEHOLDER DATA: rough figures for testing the generator,
+# not researched values. Replace with the game's real setting.
+#
+# Each period applies from its year until the next period.
+# groups:    ethnic shares, used as base weights for parent ethnicity
+# religions: religious shares, used as base weights for parent religion
+#   (keys must match the values in family.yaml)
+
+locations:
+  - id: manhattan
+    name: Manhattan, New York
+    population: 1.6
+    urbanicity: urban_core
+    periods:
+      - from: 1975
+        local_politics: strongly_left
+        diversity: highly_diverse
+        norms_sex: permissive
+        norms_gender: egalitarian
+        norms_family: individualist
+        groups: { white: 0.50, black: 0.18, hispanic: 0.23, asian: 0.07, other: 0.02 }
+        religions: { none: 0.15, spiritual: 0.04, catholic: 0.36, mainline_protestant: 0.10, evangelical: 0.06, orthodox: 0.02, latter_day_saint: 0.003, jewish: 0.17, muslim: 0.03, hindu: 0.01, buddhist: 0.02, sikh: 0.002, folk_other: 0.02 }
+      - from: 2000
+        local_politics: strongly_left
+        diversity: highly_diverse
+        norms_sex: permissive
+        norms_gender: egalitarian
+        norms_family: individualist
+        groups: { white: 0.47, black: 0.14, hispanic: 0.26, asian: 0.11, other: 0.02 }
+        religions: { none: 0.26, spiritual: 0.06, catholic: 0.30, mainline_protestant: 0.07, evangelical: 0.06, orthodox: 0.02, latter_day_saint: 0.003, jewish: 0.13, muslim: 0.04, hindu: 0.02, buddhist: 0.02, sikh: 0.002, folk_other: 0.02 }
+
+  - id: queens
+    name: Queens, New York
+    population: 2.3
+    urbanicity: inner_suburb
+    periods:
+      - from: 1975
+        local_politics: left_leaning
+        diversity: highly_diverse
+        norms_sex: moderate
+        norms_gender: mixed
+        norms_family: nuclear
+        groups: { white: 0.55, black: 0.18, hispanic: 0.17, asian: 0.08, other: 0.02 }
+        religions: { none: 0.10, spiritual: 0.02, catholic: 0.45, mainline_protestant: 0.10, evangelical: 0.08, orthodox: 0.04, latter_day_saint: 0.003, jewish: 0.12, muslim: 0.03, hindu: 0.02, buddhist: 0.02, sikh: 0.01, folk_other: 0.01 }
+      - from: 2000
+        local_politics: left_leaning
+        diversity: highly_diverse
+        norms_sex: moderate
+        norms_gender: mixed
+        norms_family: nuclear
+        groups: { white: 0.30, black: 0.19, hispanic: 0.27, asian: 0.22, other: 0.02 }
+        religions: { none: 0.17, spiritual: 0.03, catholic: 0.37, mainline_protestant: 0.07, evangelical: 0.08, orthodox: 0.04, latter_day_saint: 0.003, jewish: 0.07, muslim: 0.06, hindu: 0.05, buddhist: 0.03, sikh: 0.02, folk_other: 0.01 }
+
+  - id: houston_suburbs
+    name: Sugar Land, Texas
+    population: 1.2
+    urbanicity: outer_suburb
+    periods:
+      - from: 1975
+        local_politics: right_leaning
+        diversity: mixed
+        norms_sex: conservative
+        norms_gender: traditional
+        norms_family: nuclear
+        groups: { white: 0.68, black: 0.10, hispanic: 0.15, asian: 0.06, other: 0.01 }
+        religions: { none: 0.06, spiritual: 0.02, catholic: 0.24, mainline_protestant: 0.18, evangelical: 0.40, orthodox: 0.005, latter_day_saint: 0.01, jewish: 0.01, muslim: 0.02, hindu: 0.02, buddhist: 0.01, sikh: 0.003, folk_other: 0.01 }
+      - from: 2000
+        local_politics: mixed
+        diversity: highly_diverse
+        norms_sex: conservative
+        norms_gender: mixed
+        norms_family: nuclear
+        groups: { white: 0.40, black: 0.12, hispanic: 0.20, asian: 0.26, other: 0.02 }
+        religions: { none: 0.12, spiritual: 0.03, catholic: 0.25, mainline_protestant: 0.12, evangelical: 0.30, orthodox: 0.01, latter_day_saint: 0.01, jewish: 0.01, muslim: 0.05, hindu: 0.07, buddhist: 0.02, sikh: 0.005, folk_other: 0.01 }
+
+  - id: rural_ohio
+    name: Holmes County, Ohio
+    population: 0.8
+    urbanicity: rural
+    periods:
+      - from: 1975
+        local_politics: strongly_right
+        diversity: homogeneous
+        norms_sex: restrictive
+        norms_gender: traditional
+        norms_family: extended
+        groups: { white: 0.97, black: 0.01, hispanic: 0.01, asian: 0.005, other: 0.005 }
+        religions: { none: 0.05, spiritual: 0.01, catholic: 0.12, mainline_protestant: 0.30, evangelical: 0.50, orthodox: 0.002, latter_day_saint: 0.005, jewish: 0.002, muslim: 0.001, hindu: 0.001, buddhist: 0.001, sikh: 0.001, folk_other: 0.008 }
+      - from: 2000
+        local_politics: strongly_right
+        diversity: homogeneous
+        norms_sex: conservative
+        norms_gender: traditional
+        norms_family: extended
+        groups: { white: 0.95, black: 0.01, hispanic: 0.025, asian: 0.005, other: 0.01 }
+        religions: { none: 0.10, spiritual: 0.02, catholic: 0.12, mainline_protestant: 0.24, evangelical: 0.50, orthodox: 0.002, latter_day_saint: 0.005, jewish: 0.002, muslim: 0.001, hindu: 0.001, buddhist: 0.001, sikh: 0.001, folk_other: 0.008 }
+
+  - id: salt_lake
+    name: Salt Lake City, Utah
+    population: 0.9
+    urbanicity: inner_suburb
+    periods:
+      - from: 1975
+        local_politics: right_leaning
+        diversity: mostly_homogeneous
+        norms_sex: restrictive
+        norms_gender: traditional
+        norms_family: nuclear
+        groups: { white: 0.88, black: 0.01, hispanic: 0.07, asian: 0.02, other: 0.02 }
+        religions: { none: 0.07, spiritual: 0.02, catholic: 0.08, mainline_protestant: 0.06, evangelical: 0.06, orthodox: 0.005, latter_day_saint: 0.68, jewish: 0.005, muslim: 0.003, hindu: 0.002, buddhist: 0.005, sikh: 0.001, folk_other: 0.01 }
+      - from: 2000
+        local_politics: mixed
+        diversity: mixed
+        norms_sex: conservative
+        norms_gender: mixed
+        norms_family: nuclear
+        groups: { white: 0.75, black: 0.02, hispanic: 0.17, asian: 0.04, other: 0.02 }
+        religions: { none: 0.18, spiritual: 0.04, catholic: 0.11, mainline_protestant: 0.05, evangelical: 0.07, orthodox: 0.005, latter_day_saint: 0.50, jewish: 0.005, muslim: 0.01, hindu: 0.005, buddhist: 0.01, sikh: 0.001, folk_other: 0.01 }
+
+  - id: atlanta
+    name: Atlanta, Georgia
+    population: 1.4
+    urbanicity: urban_core
+    periods:
+      - from: 1975
+        local_politics: left_leaning
+        diversity: mixed
+        norms_sex: conservative
+        norms_gender: mixed
+        norms_family: nuclear
+        groups: { white: 0.33, black: 0.64, hispanic: 0.015, asian: 0.01, other: 0.005 }
+        religions: { none: 0.06, spiritual: 0.02, catholic: 0.06, mainline_protestant: 0.25, evangelical: 0.52, orthodox: 0.003, latter_day_saint: 0.005, jewish: 0.02, muslim: 0.02, hindu: 0.002, buddhist: 0.003, sikh: 0.001, folk_other: 0.01 }
+      - from: 2000
+        local_politics: strongly_left
+        diversity: highly_diverse
+        norms_sex: moderate
+        norms_gender: mixed
+        norms_family: nuclear
+        groups: { white: 0.36, black: 0.52, hispanic: 0.05, asian: 0.04, other: 0.03 }
+        religions: { none: 0.15, spiritual: 0.04, catholic: 0.08, mainline_protestant: 0.18, evangelical: 0.45, orthodox: 0.005, latter_day_saint: 0.005, jewish: 0.02, muslim: 0.03, hindu: 0.01, buddhist: 0.01, sikh: 0.002, folk_other: 0.01 }
+
+  - id: los_angeles
+    name: Los Angeles, California
+    population: 3.8
+    urbanicity: urban_core
+    periods:
+      - from: 1975
+        local_politics: left_leaning
+        diversity: highly_diverse
+        norms_sex: permissive
+        norms_gender: mixed
+        norms_family: nuclear
+        groups: { white: 0.48, black: 0.17, hispanic: 0.27, asian: 0.07, other: 0.01 }
+        religions: { none: 0.12, spiritual: 0.05, catholic: 0.38, mainline_protestant: 0.12, evangelical: 0.15, orthodox: 0.01, latter_day_saint: 0.01, jewish: 0.07, muslim: 0.02, hindu: 0.01, buddhist: 0.03, sikh: 0.003, folk_other: 0.02 }
+      - from: 2000
+        local_politics: strongly_left
+        diversity: highly_diverse
+        norms_sex: permissive
+        norms_gender: egalitarian
+        norms_family: individualist
+        groups: { white: 0.29, black: 0.10, hispanic: 0.47, asian: 0.11, other: 0.03 }
+        religions: { none: 0.22, spiritual: 0.06, catholic: 0.36, mainline_protestant: 0.06, evangelical: 0.12, orthodox: 0.01, latter_day_saint: 0.01, jewish: 0.05, muslim: 0.02, hindu: 0.01, buddhist: 0.04, sikh: 0.003, folk_other: 0.02 }
+
+  - id: small_town_alabama
+    name: Cullman, Alabama
+    population: 0.7
+    urbanicity: small_town
+    periods:
+      - from: 1975
+        local_politics: strongly_right
+        diversity: mostly_homogeneous
+        norms_sex: restrictive
+        norms_gender: traditional
+        norms_family: extended
+        economic_era: stagnation
+        groups: { white: 0.92, black: 0.05, hispanic: 0.015, asian: 0.005, other: 0.01 }
+        religions: { none: 0.04, spiritual: 0.01, catholic: 0.06, mainline_protestant: 0.20, evangelical: 0.66, orthodox: 0.001, latter_day_saint: 0.01, jewish: 0.001, muslim: 0.002, hindu: 0.001, buddhist: 0.001, sikh: 0.001, folk_other: 0.01 }
+      - from: 1992
+        local_politics: strongly_right
+        diversity: mostly_homogeneous
+        norms_sex: restrictive
+        norms_gender: traditional
+        norms_family: extended
+        groups: { white: 0.90, black: 0.04, hispanic: 0.04, asian: 0.01, other: 0.01 }
+        religions: { none: 0.07, spiritual: 0.01, catholic: 0.06, mainline_protestant: 0.17, evangelical: 0.66, orthodox: 0.001, latter_day_saint: 0.01, jewish: 0.001, muslim: 0.002, hindu: 0.001, buddhist: 0.001, sikh: 0.001, folk_other: 0.01 }
