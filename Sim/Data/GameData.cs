@@ -5,7 +5,7 @@ namespace YouWillDate.Sim.Data;
 /// naming the file and entry when anything is inconsistent, so bad data never
 /// reaches the generator.
 /// </summary>
-public sealed class GameData
+public sealed partial class GameData
 {
     public Config Config { get; }
     public IReadOnlyList<Location> Locations { get; }
@@ -21,6 +21,9 @@ public sealed class GameData
     /// <summary>Lower-triangular factor of the temperament correlation matrix.</summary>
     internal double[,] TemperamentCholesky { get; }
 
+    /// <summary>The city the game takes place in (config current_city).</summary>
+    public Location CurrentCity { get; private set; } = null!;
+
     public int MinBirthYear => Config.PresentYear - Config.AgeMax;
     public int MaxBirthYear => Config.PresentYear - Config.AgeMin;
 
@@ -29,30 +32,42 @@ public sealed class GameData
     public static GameData Load(string dataDir)
     {
         string Read(string file) => File.ReadAllText(Path.Combine(dataDir, file));
-        return FromYaml(Read("config.yaml"), Read("locations.yaml"), Read("eras.yaml"), Read("family.yaml"));
+        string? Optional(string file) =>
+            File.Exists(Path.Combine(dataDir, file)) ? File.ReadAllText(Path.Combine(dataDir, file)) : null;
+        return FromYaml(Read("config.yaml"), Read("locations.yaml"), Read("eras.yaml"), Read("family.yaml"),
+            Optional("life.yaml"), Optional("adult.yaml"));
     }
 
-    public static GameData FromYaml(string config, string locations, string eras, string family) =>
+    /// <param name="life">life.yaml text, or null to generate pawns without a life simulation.</param>
+    /// <param name="adult">adult.yaml text, or null to generate pawns without adult traits.</param>
+    public static GameData FromYaml(string config, string locations, string eras, string family,
+                                    string? life = null, string? adult = null) =>
         new(YamlIO.Parse<Config>("config.yaml", config),
             YamlIO.Parse<LocationsFile>("locations.yaml", locations),
             YamlIO.Parse<ErasFile>("eras.yaml", eras),
-            YamlIO.Parse<FamilyFile>("family.yaml", family));
+            YamlIO.Parse<FamilyFile>("family.yaml", family),
+            life is null ? null : YamlIO.Parse<Life.LifeFile>("life.yaml", life),
+            adult is null ? null : YamlIO.Parse<Adult.AdultFile>("adult.yaml", adult));
 
     /// <summary>Build from already-parsed files, such as edited copies. The objects are kept, not copied.</summary>
-    public static GameData FromFiles(Config config, LocationsFile locations, ErasFile eras, FamilyFile family) =>
-        new(config, locations, eras, family);
+    public static GameData FromFiles(Config config, LocationsFile locations, ErasFile eras, FamilyFile family,
+                                     Life.LifeFile? life = null, Adult.AdultFile? adult = null) =>
+        new(config, locations, eras, family, life, adult);
 
     // The parsed files this data came from, for editors to copy and change.
     public LocationsFile LocationsSource { get; }
     public ErasFile ErasSource { get; }
     public FamilyFile FamilySource { get; }
+    public Life.LifeFile? LifeSource { get; }
 
-    GameData(Config config, LocationsFile locations, ErasFile eras, FamilyFile family)
+    GameData(Config config, LocationsFile locations, ErasFile eras, FamilyFile family, Life.LifeFile? life, Adult.AdultFile? adult)
     {
         Config = config;
         LocationsSource = locations;
         ErasSource = eras;
         FamilySource = family;
+        LifeSource = life;
+        AdultSource = adult;
         Locations = locations.Locations;
         Eras = eras.EconomicEras;
 
@@ -60,8 +75,11 @@ public sealed class GameData
         TemperamentCholesky = BuildCholesky();
         ValidateEras();
         ValidateLocations();
+        ValidateCurrentCity();
         DeclareBuiltInFacts();
         Family = family.Groups.Select(CompileGroup).ToList();
+        if (life is not null) Life = CompileLife(life);
+        if (adult is not null) Adult = CompileAdult(adult);
     }
 
     public string EconomicEra(int year, LocationPeriod period) =>
@@ -99,7 +117,11 @@ public sealed class GameData
     {
         foreach (var (key, value) in overrides.Categorical)
         {
-            if (key.EndsWith(".role") || key.StartsWith("parents.same."))
+            if (IsLifeKey(key))
+                throw new ArgumentException($"'{key}' is set by the life simulation and can't be overridden");
+            if (IsAdultKey(key))
+                throw new ArgumentException($"'{key}' is an adult trait, computed from everything before it, and can't be overridden");
+            if (key.EndsWith(".role") || key.StartsWith("parents.same.") || key == "pawn.born_locally")
                 throw new ArgumentException($"'{key}' is derived and can't be overridden");
             if (!_schema.TryGetValue(SchemaKey(key), out var allowed))
                 throw new ArgumentException($"unknown fact '{key}'");
@@ -110,6 +132,10 @@ public sealed class GameData
         }
         foreach (var (key, value) in overrides.Numeric)
         {
+            if (IsLifeKey(key))
+                throw new ArgumentException($"'{key}' is set by the life simulation and can't be overridden");
+            if (IsAdultKey(key))
+                throw new ArgumentException($"'{key}' is an adult trait, computed from everything before it, and can't be overridden");
             if (!_schema.TryGetValue(key, out var allowed))
                 throw new ArgumentException($"unknown fact '{key}'");
             if (allowed is not null)
@@ -183,6 +209,33 @@ public sealed class GameData
         }
     }
 
+    void ValidateCurrentCity()
+    {
+        CurrentCity = Locations.FirstOrDefault(l => l.Id == Config.CurrentCity)
+            ?? throw new DataException($"config.yaml: current_city '{Config.CurrentCity}' is not a location id; "
+                                       + $"pick one of: {string.Join(", ", Locations.Select(l => l.Id))}");
+
+        foreach (var loc in Locations.Where(l => l.Origins is not null))
+        {
+            foreach (var (id, weight) in loc.Origins!)
+            {
+                if (!Locations.Any(l => l.Id == id))
+                    throw new DataException($"locations.yaml: '{loc.Id}' origins name '{id}', which is not a location id");
+                if (weight < 0)
+                    throw new DataException($"locations.yaml: '{loc.Id}' origins weight for '{id}' is negative");
+            }
+            if (loc.Origins!.Values.Sum() <= 0)
+                throw new DataException($"locations.yaml: '{loc.Id}' origins need at least one weight above 0");
+        }
+    }
+
+    /// <summary>
+    /// Birth-location weights (in <see cref="Locations"/> order) for people living in
+    /// a city: its origins table if it has one, otherwise every location's population.
+    /// </summary>
+    public double[] BirthLocationWeights(Location city) =>
+        Locations.Select(l => city.Origins is { } o ? o.GetValueOrDefault(l.Id) : l.Population).ToArray();
+
     void ValidateLocations()
     {
         if (Locations.Count == 0) throw new DataException("locations.yaml: no locations");
@@ -227,7 +280,10 @@ public sealed class GameData
     void DeclareBuiltInFacts()
     {
         _schema["year"] = null;
-        _schema["pawn.location"] = Locations.Select(l => l.Id).ToHashSet();
+        var locationIds = Locations.Select(l => l.Id).ToHashSet();
+        _schema["pawn.current_city"] = locationIds;
+        _schema["pawn.birth_location"] = locationIds;
+        _schema["pawn.born_locally"] = ["yes", "no"];
         _schema["pawn.sex"] = ContextSchema.Sexes.ToHashSet();
         foreach (var t in Config.Temperament.Traits) _schema[$"pawn.{t}"] = null;
         foreach (var (k, v) in ContextSchema.Values) _schema[$"context.{k}"] = v.ToHashSet();
@@ -256,9 +312,9 @@ public sealed class GameData
         return new TableGroup(g.Name, g.PerParent, items);
     }
 
-    TableItem CompileItem(GroupDto g, ItemDto dto)
+    TableItem CompileItem(GroupDto g, ItemDto dto, string file = "family.yaml")
     {
-        string where = $"family.yaml: {g.Name}.{dto.Id}";
+        string where = $"{file}: {g.Name}.{dto.Id}";
         if (string.IsNullOrEmpty(dto.Id)) throw new DataException($"family.yaml: an item in '{g.Name}' has no id");
         if (dto.Values.Count == 0) throw new DataException($"{where}: no values");
         if (dto.Values.Distinct().Count() != dto.Values.Count) throw new DataException($"{where}: duplicate values");
@@ -333,8 +389,12 @@ public sealed class GameData
             string key = CanonicalKey(kv.Key, g.PerParent, where);
             if (!_schema.TryGetValue(key, out var allowed))
                 throw new DataException($"{where}: '{kv.Key}' is unknown or not generated yet (items can only read items above them)");
+            // A single plain number on a numeric fact means "exactly this": age: 18.
+            if (allowed is null && !c.IsNumeric && kv.Value is string plain
+                && double.TryParse(plain, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+                c = Condition.Parse(kv.Key, $"{plain}..{plain}");
             if (allowed is null && !c.IsNumeric)
-                throw new DataException($"{where}: '{kv.Key}' is numeric; use a comparison like \">=0.7\" or \"1990..1999\"");
+                throw new DataException($"{where}: '{kv.Key}' is numeric; use a number or a comparison like \">=0.7\" or \"1990..1999\"");
             if (allowed is not null && c.IsNumeric)
                 throw new DataException($"{where}: '{kv.Key}' is categorical; list its values instead of comparing");
             if (allowed is not null)

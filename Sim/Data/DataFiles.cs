@@ -4,6 +4,8 @@ namespace YouWillDate.Sim.Data;
 
 public sealed class Config
 {
+    /// <summary>Location id of the city the game takes place in. Every pawn lives here now.</summary>
+    public string CurrentCity { get; set; } = "";
     public int PresentYear { get; set; }
     public int AgeMin { get; set; }
     public int AgeMax { get; set; }
@@ -34,9 +36,16 @@ public sealed class Location
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>Relative weight for birth location draws.</summary>
+    /// <summary>
+    /// Relative population. Used for birth locations when the current city has no origins table.
+    /// </summary>
     public double Population { get; set; }
     public string Urbanicity { get; set; } = "";
+    /// <summary>
+    /// When this is the current city: where the people living here were born,
+    /// as relative weights by location id. Missing means "weight by population".
+    /// </summary>
+    public Dictionary<string, double>? Origins { get; set; }
     /// <summary>Conditions by birth year. Each period applies from its year until the next one.</summary>
     public List<LocationPeriod> Periods { get; set; } = new();
 
@@ -59,6 +68,8 @@ public sealed class LocationPeriod
     public Dictionary<string, double> Groups { get; set; } = new();
     /// <summary>Religious shares. Used as base weights for parent religion.</summary>
     public Dictionary<string, double> Religions { get; set; } = new();
+    /// <summary>Optional local overrides of eras.yaml base rates while the pawn lives here.</summary>
+    public Dictionary<string, double>? Rates { get; set; }
 
     public Dictionary<string, double>? Shares(string name) => name switch
     {
@@ -71,6 +82,14 @@ public sealed class LocationPeriod
 public sealed class ErasFile
 {
     public List<EraEntry> EconomicEras { get; set; } = new();
+    /// <summary>Base rates for life events by calendar year. Each entry applies until the next one that sets the same rate.</summary>
+    public List<BaseRateEntry> BaseRates { get; set; } = new();
+}
+
+public sealed class BaseRateEntry
+{
+    public int From { get; set; }
+    public Dictionary<string, double> Rates { get; set; } = new();
 }
 
 public sealed class EraEntry

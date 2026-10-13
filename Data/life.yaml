@@ -1,0 +1,1354 @@
+﻿# Life simulation (spec section 4). STARTING VALUES FOR TUNING: rates and
+# weights are rough guesses, not researched figures.
+#
+# The simulation runs every pawn from age 0 to its current age, one year at a
+# time. Each year, items run in the order of this file. An item sees changes
+# made this year by items above it, and changes made by items below it as of
+# last year.
+#
+# Item types
+#   condition  a state value, read as state.<id>. Kinds:
+#                state    set at the start, then changed only by effects
+#                number   numeric state changed by effects (add, reset, record_first_age)
+#                roll     weighted roll on its schedule (weights + mods, as in family.yaml)
+#                drift    ordered values; each update moves one step up or down (up/down rates)
+#                derive   first matching rule, every year
+#                counter  +1 each year while `while` holds, otherwise back to 0
+#   event      fires with probability p = sigmoid(logit(base) + weights + mods)
+#   fork       picks one option: chance âˆ weight Ã— exp(utility / temperature)
+#
+# Schedule
+#   window: [stage] or [first_stage, last_stage]; from_age / to_age narrow it
+#   frequency: once (one random age in the window), per_stage (one random age
+#     per stage), per_year (every year). ages: [18, 22] rolls at exact ages.
+#   max: most times an event can fire. must_happen: force it in the last
+#     simulated year of its window if it has not fired.
+#   requires: conditions that must hold for the item to roll at all.
+#
+# Rates and utilities
+#   base: a probability, or rate.<name> from eras.yaml base_rates
+#   weights: fact: number          numeric facts; temperament (pawn.*) is centred
+#                                  to -1..1, so 1.0 moves the logit by up to Â±1
+#            fact: { value: number }  added when the fact has that value
+#   mods: - when: { conditions }   add: number   (added when all conditions hold)
+#
+# Effects
+#   set: { state.x: value }   add: { state.n: 1 }   reset: [state.n]
+#   record_first_age: [state.age_x]   channels: { rupture: 0.4 }
+#
+# Readings (spec section 5): how the pawn takes an event, chosen by temperament.
+# Each reading writes channel deltas that the adult profile reads later.
+#
+# Facts available: everything from the family step (pawn., context., mother.,
+# father., any_parent., household., surroundings., climate., year), plus
+# age, cal_year, stage, place.* (where the pawn lives that year: same fields
+# as context.*), state.location, state.lives_in_current_city, channel.*.
+#
+# Tags: relationship_start, relationship_married and relationship_end build the
+# pawn's partner list.
+#
+# Use `note:` fields rather than comments below this header: the Traits editor
+# rewrites this file when it saves, keeping this header but not comments.
+
+stages:
+  - { id: early_childhood, from: 0, to: 5, weight: 1.0 }
+  - { id: school_age, from: 6, to: 12, weight: 0.8 }
+  - { id: adolescence, from: 13, to: 17, weight: 0.9 }
+  - { id: early_adulthood, from: 18, to: 25, weight: 0.6 }
+  - { id: present, from: 26, to: 120, weight: 0.4 }
+
+channels: [threat_shift, reward_shift, control_shift, affiliation_shift, care_inconsistency,
+           care_coldness, rupture, secure_bond, scarcity, constraint, shame]
+
+fork_temperature: 1.0
+reading_temperature: 0.7
+
+items:
+
+  # ------------------------------------------------------------ state
+
+  - id: parents_together
+    type: condition
+    kind: state
+    values: ["yes", "no"]
+    initial_rules:
+      - when: { household.shape: [two_parents, blended, adoptive], household.marriage_quality: "!separated" }
+        value: "yes"
+      - value: "no"
+
+  - id: parents_split
+    note: The parents were together and then split, by separation (before birth), divorce or death. Spec 4.11 needs this before a remarriage.
+    type: condition
+    kind: state
+    values: ["no", "yes"]
+    initial_rules:
+      - when: { household.marriage_quality: separated }
+        value: "yes"
+      - value: "no"
+
+  - id: mother_alive
+    type: condition
+    kind: state
+    values: ["yes", "no"]
+    initial_value: "yes"
+
+  - id: father_alive
+    type: condition
+    kind: state
+    values: ["yes", "no"]
+    initial_value: "yes"
+
+  - id: household_shape
+    note: The home the pawn grows up in. Starts as household.shape; divorce, death and remarriage change it.
+    type: condition
+    kind: state
+    values: [two_parents, single_mother, single_father, blended, grandparents, extended_family, foster, adoptive]
+    initial: household.shape
+
+  - id: guardian
+    type: condition
+    kind: state
+    values: ["no", "yes"]
+    initial_value: "no"
+
+  - id: years_since_move
+    type: condition
+    kind: counter
+    initial_value: "99"
+
+  - id: education
+    type: condition
+    kind: state
+    values: [none, primary, some_secondary, secondary, trade, some_college, bachelors, masters, doctorate_professional]
+    initial_value: primary
+
+  - id: studying
+    type: condition
+    kind: state
+    values: [none, trade_school, community_college, university, grad_school]
+    initial_value: none
+
+  - id: grad_program
+    type: condition
+    kind: state
+    values: [none, masters, professional, doctorate]
+    initial_value: none
+
+  - id: field
+    type: condition
+    kind: state
+    values: [none, stem, business, health, education, social_science, humanities, arts]
+    initial_value: none
+
+  - id: military
+    type: condition
+    kind: state
+    values: [never, serving, veteran]
+    initial_value: never
+
+  - id: career
+    type: condition
+    kind: state
+    values: [none, student, unemployed, unskilled_labor, service, clerical, skilled_trade, public_sector, military,
+             small_business, creative, professional, academic, manager_executive, homemaker]
+    initial_value: none
+
+  - id: left_home
+    type: condition
+    kind: state
+    values: ["no", "yes"]
+    initial_value: "no"
+
+  - id: relationship
+    type: condition
+    kind: state
+    values: [single, dating, cohabiting, married]
+    initial_value: single
+
+  - id: cheated_on
+    note: Set when a partner cheated. The adult profile turns this into a dealbreaker (spec 6.8).
+    type: condition
+    kind: state
+    values: ["no", "yes"]
+    initial_value: "no"
+
+  - id: legal_record
+    type: condition
+    kind: state
+    values: ["no", "yes"]
+    initial_value: "no"
+
+  - id: children
+    type: condition
+    kind: number
+    initial_value: "0"
+
+  - id: illnesses
+    type: condition
+    kind: number
+    initial_value: "0"
+
+  - id: age_first_sex
+    type: condition
+    kind: number
+
+  - id: age_left_home
+    type: condition
+    kind: number
+
+  - id: age_first_child
+    type: condition
+    kind: number
+
+  # ------------------------------------------------- childhood conditions
+
+  - id: peer_acceptance
+    type: condition
+    kind: roll
+    window: [school_age, adolescence]
+    frequency: per_stage
+    values: [rejected, marginal, accepted, popular]
+    weights: { rejected: 5, marginal: 20, accepted: 55, popular: 20 }
+    mods:
+      - when: { pawn.reward_drive: ">=0.7" }
+        mul: { popular: 1.8 }
+      - when: { pawn.threat_sensitivity: ">=0.75" }
+        mul: { rejected: 1.8, marginal: 1.4 }
+      - when: { pawn.affiliation: "<=0.25" }
+        mul: { marginal: 1.5, popular: 0.6 }
+      - note: Recently moved to a new school.
+        when: { state.years_since_move: "<=1" }
+        mul: { rejected: 1.6, marginal: 1.5, popular: 0.5 }
+      - when: { state.wealth: poverty }
+        mul: { rejected: 1.5, popular: 0.6 }
+      - when: { state.wealth: [affluent, wealthy] }
+        mul: { popular: 1.3 }
+      - note: Fit with the local mix.
+        when: { place.diversity: [homogeneous, mostly_homogeneous], mother.ethnicity: "!white" }
+        mul: { rejected: 1.5, marginal: 1.3 }
+
+  - id: close_friendships
+    type: condition
+    kind: roll
+    window: [school_age, present]
+    frequency: per_stage
+    values: [none, few, solid]
+    weights: { none: 10, few: 45, solid: 45 }
+    mods:
+      - when: { pawn.affiliation: ">=0.7" }
+        mul: { solid: 1.6, none: 0.6 }
+      - when: { pawn.affiliation: "<=0.3" }
+        mul: { none: 1.8, solid: 0.6 }
+      - when: { pawn.reward_drive: ">=0.7" }
+        mul: { solid: 1.3 }
+      - when: { state.years_since_move: "<=1" }
+        mul: { none: 1.8, solid: 0.5 }
+      - when: { state.peer_acceptance: rejected }
+        mul: { none: 2.5, solid: 0.4 }
+      - when: { state.peer_acceptance: popular }
+        mul: { solid: 1.5 }
+
+  - id: extended_family_contact
+    type: condition
+    kind: roll
+    frequency: per_stage
+    values: [none, occasional, frequent]
+    weights: { none: 20, occasional: 50, frequent: 30 }
+    mods:
+      - when: { place.norms_family: extended }
+        mul: { frequent: 2.0, none: 0.5 }
+      - when: { state.household_shape: [grandparents, extended_family] }
+        mul: { frequent: 4.0, none: 0.1 }
+      - when: { any_parent.immigrant_generation: first }
+        mul: { none: 1.5 }
+      - when: { state.years_since_move: "<=1" }
+        mul: { frequent: 0.6 }
+
+  - id: community_ties
+    type: condition
+    kind: roll
+    frequency: per_stage
+    values: [none, weak, strong]
+    weights: { none: 25, weak: 50, strong: 25 }
+    mods:
+      - when: { any_parent.practice: [regular, devout, strict] }
+        mul: { strong: 2.5, none: 0.5 }
+      - when: { place.urbanicity: [small_town, rural] }
+        mul: { strong: 1.5 }
+      - when: { place.urbanicity: urban_core }
+        mul: { strong: 0.7 }
+      - when: { surroundings.activities: many }
+        mul: { strong: 1.4 }
+      - when: { state.years_since_move: "<=1" }
+        mul: { strong: 0.4, none: 1.6 }
+
+  - id: sex_education
+    type: condition
+    kind: roll
+    ages: [13]
+    values: [none, abstinence_only, comprehensive]
+    weights: { none: 15, abstinence_only: 25, comprehensive: 60 }
+    mods:
+      - when: { place.norms_sex: restrictive }
+        mul: { abstinence_only: 3, comprehensive: 0.4 }
+      - when: { place.norms_sex: permissive }
+        mul: { comprehensive: 1.6 }
+      - when: { surroundings.school_type: religious }
+        mul: { abstinence_only: 3 }
+      - when: { surroundings.school_type: homeschool }
+        mul: { none: 4 }
+      - when: { year: ">=1995" }
+        mul: { comprehensive: 1.2 }
+
+  # --------------------------------------------------- childhood events
+
+  - id: family_death
+    note: Death of a family member or close friend. Parent outcomes depend on age and whether the other parent is alive.
+    type: event
+    frequency: per_stage
+    rate:
+      base: "0.18"
+      weights:
+        any_parent.age_at_birth: { 35_39: 0.3, 40_plus: 0.6 }
+        state.wealth: { poverty: 0.3 }
+      mods:
+        - when: { stage: present }
+          add: 0.6
+    outcomes:
+      - id: grandparent
+        weight: 70
+        effects: { channels: { rupture: 0.2 } }
+      - id: mother_while_child
+        weight: 4
+        requires: { state.mother_alive: "yes", state.father_alive: "yes", age: "<18" }
+        effects:
+          set: { state.mother_alive: "no", state.parents_together: "no", state.parents_split: "yes", state.household_shape: single_father }
+          channels: { rupture: 1.0, care_inconsistency: 0.5, threat_shift: 0.3 }
+      - id: father_while_child
+        weight: 6
+        requires: { state.mother_alive: "yes", state.father_alive: "yes", age: "<18" }
+        effects:
+          set: { state.father_alive: "no", state.parents_together: "no", state.parents_split: "yes", state.household_shape: single_mother }
+          channels: { rupture: 1.0, care_inconsistency: 0.4, threat_shift: 0.3 }
+      - id: last_parent_while_child
+        weight: 3
+        requires: { age: "<18" }
+        effects:
+          set: { state.mother_alive: "no", state.father_alive: "no", state.parents_together: "no", state.parents_split: "yes" }
+          channels: { rupture: 1.2, care_inconsistency: 0.6, threat_shift: 0.4 }
+      - id: mother
+        weight: 8
+        requires: { state.mother_alive: "yes", age: ">=18" }
+        effects:
+          set: { state.mother_alive: "no", state.parents_together: "no" }
+          channels: { rupture: 0.6 }
+      - id: father
+        weight: 12
+        requires: { state.father_alive: "yes", age: ">=18" }
+        effects:
+          set: { state.father_alive: "no", state.parents_together: "no" }
+          channels: { rupture: 0.6 }
+      - id: sibling
+        weight: 3
+        requires: { household.siblings: "!0" }
+        effects: { channels: { rupture: 0.8, threat_shift: 0.2 } }
+      - id: close_friend
+        weight: 6
+        requires: { age: ">=13" }
+        effects: { channels: { rupture: 0.5 } }
+    readings:
+      - id: people_leave
+        weights: { pawn.threat_sensitivity: 1.5 }
+        effects: { channels: { care_inconsistency: 0.2, threat_shift: 0.1 } }
+      - id: hold_on_tighter
+        weights: { pawn.affiliation: 1.2 }
+        effects: { channels: { secure_bond: 0.1, affiliation_shift: 0.1 } }
+      - id: get_on_with_it
+        weights: { pawn.self_control: 1.2, pawn.threat_sensitivity: -0.8 }
+        effects: { channels: { control_shift: 0.1 } }
+
+  - id: guardianship
+    note: Both parents dead while the pawn is a child; someone else raises them (spec 4.11).
+    type: event
+    requires: { state.mother_alive: "no", state.father_alive: "no", state.guardian: "no", age: "<18" }
+    rate: { base: "1" }
+    outcomes:
+      - id: grandparents
+        weight: 60
+        effects: { set: { state.household_shape: grandparents, state.guardian: "yes" } }
+      - id: extended_family
+        weight: 25
+        effects: { set: { state.household_shape: extended_family, state.guardian: "yes" } }
+      - id: foster
+        weight: 15
+        effects:
+          set: { state.household_shape: foster, state.guardian: "yes" }
+          channels: { care_coldness: 0.4 }
+
+  - id: parental_divorce
+    type: event
+    window: [early_childhood, adolescence]
+    frequency: once
+    requires: { state.parents_together: "yes", state.mother_alive: "yes", state.father_alive: "yes" }
+    rate:
+      base: rate.divorce_childhood
+      weights:
+        household.marriage_quality: { warm_stable: -1.5, cold_stable: -0.3, strained: 0.6, high_conflict: 1.2 }
+        any_parent.practice: { devout: -0.6, strict: -0.8 }
+        any_parent.substance_use: { alcohol_dependence: 0.7, drug_dependence: 0.9 }
+    outcomes:
+      - id: mother_custody
+        weight: 75
+        effects: { set: { state.household_shape: single_mother } }
+      - id: father_custody
+        weight: 12
+        effects: { set: { state.household_shape: single_father } }
+      - id: shared_custody
+        weight: 13
+        effects: { set: { state.household_shape: single_mother } }
+    effects:
+      set: { state.parents_together: "no", state.parents_split: "yes" }
+      channels: { care_inconsistency: 0.4 }
+    readings:
+      - id: people_leave
+        weights: { pawn.threat_sensitivity: 2.0 }
+        effects: { channels: { care_inconsistency: 0.3, threat_shift: 0.2 } }
+      - id: rely_on_myself
+        weights: { pawn.threat_sensitivity: -1.2, pawn.reward_drive: 1.2 }
+        effects: { channels: { affiliation_shift: -0.2, control_shift: 0.1 } }
+      - id: keep_everyone_calm
+        weights: { pawn.self_control: 1.5, pawn.reward_drive: -1.0 }
+        effects: { channels: { constraint: 0.3, care_coldness: 0.1 } }
+
+  - id: remarriage
+    note: Spec 4.11, a remarriage needs an earlier divorce or parent death (parents_together no).
+    type: event
+    window: [early_childhood, adolescence]
+    frequency: per_stage
+    requires: { state.parents_together: "no", state.parents_split: "yes", state.household_shape: [single_mother, single_father] }
+    rate:
+      base: "0.3"
+      weights:
+        state.wealth: { poverty: -0.3 }
+        any_parent.practice: { devout: 0.3 }
+    effects:
+      set: { state.household_shape: blended }
+      channels: { care_inconsistency: 0.2 }
+    readings:
+      - id: new_family
+        weights: { pawn.affiliation: 1.5 }
+        effects: { channels: { secure_bond: 0.2 } }
+      - id: replaced
+        weights: { pawn.threat_sensitivity: 1.5 }
+        effects: { channels: { care_inconsistency: 0.3, rupture: 0.1 } }
+    valence: positive
+
+  - id: parent_partners
+    note: A parent raising the pawn alone from the start (never together with the other parent) moves in with a partner.
+    type: event
+    window: [early_childhood, adolescence]
+    frequency: per_stage
+    requires: { state.parents_split: "no", state.household_shape: [single_mother, single_father] }
+    rate:
+      base: "0.25"
+      weights:
+        state.wealth: { poverty: -0.3 }
+    effects:
+      set: { state.household_shape: blended }
+      channels: { care_inconsistency: 0.15 }
+    readings:
+      - id: new_family
+        weights: { pawn.affiliation: 1.5 }
+        effects: { channels: { secure_bond: 0.2 } }
+      - id: intruder
+        weights: { pawn.threat_sensitivity: 1.5 }
+        effects: { channels: { care_inconsistency: 0.2 } }
+    valence: positive
+
+  - id: childhood_move
+    type: event
+    window: [early_childhood, adolescence]
+    frequency: per_stage
+    rate:
+      base: "0.22"
+      weights:
+        state.wealth: { poverty: 0.5 }
+        any_parent.occupation: { military: 1.5, professional: 0.3, manager_executive: 0.3 }
+        state.parents_together: { "no": 0.6 }
+    effects:
+      reset: [state.years_since_move]
+      channels: { care_inconsistency: 0.15 }
+    readings:
+      - id: fresh_start
+        weights: { pawn.reward_drive: 1.5 }
+        effects: { channels: { reward_shift: 0.1 } }
+      - id: lost_everyone
+        weights: { pawn.affiliation: 1.2, pawn.threat_sensitivity: 0.8 }
+        effects: { channels: { rupture: 0.3, affiliation_shift: -0.1 } }
+
+  - id: bullying
+    type: event
+    window: [school_age, adolescence]
+    frequency: per_stage
+    rate:
+      base: "0.12"
+      weights:
+        state.peer_acceptance: { rejected: 1.6, marginal: 0.7, popular: -1.0 }
+        pawn.threat_sensitivity: 0.6
+    readings:
+      - id: something_wrong_with_me
+        weights: { pawn.threat_sensitivity: 1.5 }
+        effects: { channels: { shame: 0.6, threat_shift: 0.3 } }
+      - id: fight_back
+        weights: { pawn.reward_drive: 1.2, pawn.threat_sensitivity: -1.0 }
+        effects: { channels: { shame: 0.2, control_shift: -0.2 } }
+      - id: keep_my_head_down
+        weights: { pawn.self_control: 1.0 }
+        effects: { channels: { threat_shift: 0.4, affiliation_shift: -0.1 } }
+
+  - id: mentor
+    type: event
+    window: [school_age, early_adulthood]
+    frequency: once
+    rate:
+      base: "0.25"
+      weights:
+        surroundings.school_quality: { failing: -0.5, good: 0.4, elite: 0.8 }
+        surroundings.activities: { none: -0.6, some: 0.2, many: 0.6 }
+        pawn.affiliation: 0.4
+    effects:
+      channels: { control_shift: 0.3, secure_bond: 0.2 }
+    valence: positive
+
+  # ------------------------------------------------- education forks
+
+  - id: high_school
+    type: fork
+    ages: [17]
+    options:
+      - id: graduate
+        weight: 20
+        effects: { set: { state.education: secondary } }
+      - id: drop_out
+        weight: 1
+        weights:
+          pawn.self_control: -1.2
+          state.wealth: { poverty: 0.8, working_class: 0.3 }
+          surroundings.school_quality: { failing: 0.9, below_average: 0.4, good: -0.4, elite: -1.0 }
+          any_parent.education: { none: 0.5, primary: 0.5, some_secondary: 0.6 }
+          state.peer_acceptance: { rejected: 0.4 }
+          state.legal_record: { "yes": 1.0 }
+        mods:
+          - when: { state.children: ">=1" }
+            add: 1.5
+        effects: { set: { state.education: some_secondary } }
+
+  - id: military_service
+    note: Spec 4.11, service starts at or after the legal minimum age (18 here).
+    type: fork
+    ages: [18]
+    requires: { state.education: [secondary, some_secondary] }
+    options:
+      - id: no_service
+        weight: 30
+      - id: enlist
+        weight: 0.45
+        weights:
+          state.wealth: { poverty: 0.6, working_class: 0.5, affluent: -0.8, wealthy: -1.2 }
+          place.urbanicity: { rural: 0.5, small_town: 0.5 }
+          place.local_politics: { strongly_right: 0.5, right_leaning: 0.3 }
+          any_parent.occupation: { military: 1.5 }
+          place.economic_era: { recession: 0.4, crisis: 0.5 }
+          pawn.threat_sensitivity: -0.3
+        mods:
+          - when: { pawn.sex: male }
+            add: 1.0
+        effects:
+          set: { state.military: serving, state.career: military }
+          channels: { control_shift: 0.3 }
+
+  - id: after_high_school
+    type: fork
+    ages: [18]
+    requires: { state.education: secondary, state.military: never }
+    options:
+      - id: work
+        weight: 3
+      - id: trade_school
+        weight: 1
+        weights:
+          any_parent.occupation: { skilled_trade: 0.6 }
+          pawn.self_control: 0.2
+        effects: { set: { state.studying: trade_school, state.career: student } }
+      - id: community_college
+        weight: 1.5
+        weights:
+          state.wealth: { poverty: 0.3, working_class: 0.3 }
+        effects: { set: { state.studying: community_college, state.career: student } }
+      - id: university
+        weight: 2.5
+        weights:
+          any_parent.education: { none: -0.8, primary: -0.8, some_secondary: -0.6, bachelors: 1.0, masters: 1.4, doctorate_professional: 1.6 }
+          state.wealth: { poverty: -1.0, working_class: -0.5, upper_middle: 0.6, affluent: 1.0, wealthy: 1.2 }
+          surroundings.school_quality: { failing: -1.0, below_average: -0.5, good: 0.6, elite: 1.2 }
+          pawn.self_control: 0.9
+        mods:
+          - when: { year: ">=1995" }
+            add: 0.3
+        effects: { set: { state.studying: university, state.career: student } }
+
+  - id: field_of_study
+    type: fork
+    ages: [18]
+    requires: { state.studying: [university, community_college] }
+    options:
+      - id: stem
+        weights: { pawn.self_control: 0.5, any_parent.occupation: { professional: 0.3, academic: 0.4 } }
+        effects: { set: { state.field: stem } }
+      - id: business
+        weights: { pawn.reward_drive: 0.5, any_parent.occupation: { small_business: 0.7, manager_executive: 0.7 } }
+        effects: { set: { state.field: business } }
+      - id: health
+        weights: { pawn.affiliation: 0.5, pawn.self_control: 0.3 }
+        effects: { set: { state.field: health } }
+      - id: education
+        weight: 0.7
+        weights: { pawn.affiliation: 0.6, pawn.self_control: 0.2 }
+        effects: { set: { state.field: education } }
+      - id: social_science
+        weights: { pawn.affiliation: 0.3 }
+        effects: { set: { state.field: social_science } }
+      - id: humanities
+        weight: 0.7
+        weights: { pawn.reward_drive: -0.2 }
+        effects: { set: { state.field: humanities } }
+      - id: arts
+        weight: 0.6
+        weights: { pawn.reward_drive: 0.6, pawn.self_control: -0.4, surroundings.activities: { many: 0.4 } }
+        effects: { set: { state.field: arts } }
+
+  - id: trade_school_outcome
+    type: fork
+    ages: [20]
+    requires: { state.studying: trade_school }
+    options:
+      - id: finish
+        weight: 4
+        weights: { pawn.self_control: 0.6 }
+        effects: { set: { state.education: trade, state.studying: none, state.career: none } }
+      - id: drop_out
+        effects: { set: { state.studying: none, state.career: none } }
+
+  - id: community_college_outcome
+    type: fork
+    ages: [20]
+    requires: { state.studying: community_college }
+    options:
+      - id: transfer
+        weight: 1.5
+        weights:
+          pawn.self_control: 0.6
+          state.wealth: { poverty: -0.4, upper_middle: 0.3 }
+        effects: { set: { state.studying: university } }
+      - id: associate_degree
+        weight: 1.5
+        effects: { set: { state.education: some_college, state.studying: none, state.career: none } }
+      - id: drop_out
+        weights: { pawn.self_control: -0.6 }
+        effects: { set: { state.education: some_college, state.studying: none, state.career: none } }
+
+  - id: university_outcome
+    type: fork
+    ages: [22]
+    requires: { state.studying: university }
+    options:
+      - id: graduate
+        weight: 3
+        weights:
+          pawn.self_control: 0.9
+          state.wealth: { poverty: -0.4, affluent: 0.4, wealthy: 0.5 }
+          state.debt: { crushing: -0.5 }
+        mods:
+          - when: { state.children: ">=1" }
+            add: -1.0
+        effects: { set: { state.education: bachelors, state.studying: none, state.career: none } }
+      - id: drop_out
+        effects: { set: { state.education: some_college, state.studying: none, state.career: none } }
+
+  - id: grad_school
+    type: fork
+    ages: [23]
+    requires: { state.education: bachelors, state.studying: none }
+    options:
+      - id: none
+        weight: 6
+      - id: masters
+        weight: 1.5
+        weights: { pawn.self_control: 0.5, state.field: { education: 0.8, business: 0.5, social_science: 0.4 } }
+        effects: { set: { state.studying: grad_school, state.grad_program: masters, state.career: student } }
+      - id: professional
+        weight: 0.6
+        weights: { state.field: { health: 1.5, social_science: 0.5 }, any_parent.education: { doctorate_professional: 0.8 } }
+        effects: { set: { state.studying: grad_school, state.grad_program: professional, state.career: student } }
+      - id: doctorate
+        weight: 0.4
+        weights: { state.field: { stem: 0.8, humanities: 0.5 }, pawn.self_control: 0.6 }
+        effects: { set: { state.studying: grad_school, state.grad_program: doctorate, state.career: student } }
+
+  - id: grad_school_outcome
+    type: fork
+    ages: [25, 27, 29]
+    requires: { state.studying: grad_school }
+    options:
+      - id: finish_masters
+        weight: 6
+        requires: { state.grad_program: masters }
+        effects: { set: { state.education: masters, state.studying: none, state.grad_program: none, state.career: none } }
+      - id: finish_doctorate
+        weight: 4
+        requires: { state.grad_program: [professional, doctorate] }
+        mods:
+          - note: Too early to finish a doctorate or professional degree.
+            when: { age: "25" }
+            add: -4
+        effects: { set: { state.education: doctorate_professional, state.studying: none, state.grad_program: none, state.career: none } }
+      - id: keep_studying
+        mods:
+          - when: { age: "29" }
+            add: -6
+      - id: drop_out
+        weight: 0.6
+        effects: { set: { state.studying: none, state.grad_program: none, state.career: none } }
+
+  - id: military_discharge
+    type: event
+    requires: { state.military: serving }
+    rate: { base: "0.22" }
+    effects:
+      set: { state.military: veteran, state.career: none }
+    readings:
+      - id: proud
+        weights: { pawn.self_control: 1.0 }
+        effects: { channels: { control_shift: 0.2 } }
+      - id: haunted
+        weights: { pawn.threat_sensitivity: 1.5 }
+        effects: { channels: { threat_shift: 0.4, rupture: 0.1 } }
+      - id: lost_without_structure
+        weights: { pawn.self_control: -1.0 }
+        effects: { channels: { control_shift: -0.2 } }
+
+  # ------------------------------------------------- moving out and moving to the city
+
+  - id: leave_home
+    type: event
+    from_age: 16
+    max: 1
+    requires: { state.left_home: "no" }
+    rate:
+      base: "0.12"
+      weights:
+        state.studying: { university: 2.5, grad_school: 2.0 }
+        state.military: { serving: 4.0 }
+        place.norms_family: { extended: -0.8, individualist: 0.4 }
+        climate.domestic_violence: { verbal: 0.3, physical_between_parents: 0.4, physical_toward_children: 0.8 }
+        state.income: { none: -0.8, low: -0.3, high: 0.5, very_high: 0.8 }
+        state.household_shape: { foster: 1.0 }
+      mods:
+        - when: { age: "16..17" }
+          add: -2.2
+        - when: { age: "18" }
+          add: 0.6
+    effects:
+      set: { state.left_home: "yes" }
+      record_first_age: [state.age_left_home]
+    readings:
+      - id: freedom
+        weights: { pawn.reward_drive: 1.5 }
+        effects: { channels: { reward_shift: 0.1 } }
+      - id: escape
+        weights: { climate.domestic_violence: { physical_toward_children: 2.0, physical_between_parents: 1.2, verbal: 0.6 } }
+        effects: { channels: { control_shift: 0.1, care_coldness: -0.1 } }
+      - id: homesick
+        weights: { pawn.affiliation: 1.2, pawn.threat_sensitivity: 0.5 }
+        effects: { channels: { affiliation_shift: 0.1 } }
+    valence: positive
+
+  - id: move_to_city
+    note: Pawns born elsewhere end up in the game's city by the present (they all live there now).
+    type: event
+    max: 1
+    must_happen: true
+    requires: { state.lives_in_current_city: "no" }
+    rate:
+      base: "0.008"
+      weights:
+        pawn.reward_drive: 0.4
+        state.extended_family_contact: { frequent: -0.5 }
+      mods:
+        - when: { age: "18" }
+          add: 3.0
+        - when: { age: "19..21" }
+          add: 1.5
+        - when: { age: "22..23" }
+          add: 2.5
+        - when: { age: ">=24" }
+          add: 2.0
+    effects:
+      set: { state.location: $current_city }
+      reset: [state.years_since_move]
+    readings:
+      - id: fresh_start
+        weights: { pawn.reward_drive: 1.5 }
+        effects: { channels: { reward_shift: 0.1 } }
+      - id: lonely_in_a_crowd
+        weights: { pawn.affiliation: 1.0, pawn.threat_sensitivity: 1.0 }
+        effects: { channels: { affiliation_shift: -0.1, threat_shift: 0.1 } }
+      - id: ambition
+        weights: { pawn.self_control: 1.2 }
+        effects: { channels: { control_shift: 0.1 } }
+    valence: positive
+
+  # ------------------------------------------------- love and sex
+
+  - id: first_sex
+    type: event
+    from_age: 13
+    max: 1
+    rate:
+      base: rate.first_sex
+      weights:
+        pawn.reward_drive: 0.8
+        pawn.self_control: -0.6
+        any_parent.practice: { devout: -0.7, strict: -1.0 }
+        place.norms_sex: { restrictive: -0.6, permissive: 0.4 }
+        climate.parenting_style: { neglectful: 0.5, permissive: 0.4, strict: -0.2 }
+        state.relationship: { dating: 1.5, cohabiting: 2.5, married: 3.0 }
+      mods:
+        - when: { age: "13" }
+          add: -2.0
+        - when: { age: "14" }
+          add: -1.5
+        - when: { age: "15" }
+          add: -0.9
+        - when: { age: "16" }
+          add: -0.3
+    effects:
+      record_first_age: [state.age_first_sex]
+    valence: positive
+
+  - id: start_dating
+    type: event
+    from_age: 14
+    requires: { state.relationship: single }
+    rate:
+      base: "0.3"
+      weights:
+        pawn.reward_drive: 0.6
+        pawn.affiliation: 0.5
+        pawn.threat_sensitivity: -0.4
+        state.peer_acceptance: { popular: 0.5, rejected: -0.6 }
+        any_parent.practice: { strict: -0.5 }
+        state.close_friendships: { none: -0.4 }
+      mods:
+        - when: { age: "14..15" }
+          add: -1.2
+        - when: { age: ">=40" }
+          add: -0.4
+    effects:
+      set: { state.relationship: dating }
+    tags: [relationship_start]
+    valence: positive
+
+  - id: move_in_together
+    type: event
+    from_age: 18
+    requires: { state.relationship: dating, state.relationship_years: ">=1" }
+    rate:
+      base: "0.25"
+      weights:
+        any_parent.practice: { devout: -0.8, strict: -1.0 }
+        place.norms_sex: { restrictive: -1.0, permissive: 0.3 }
+        pawn.affiliation: 0.3
+    effects:
+      set: { state.relationship: cohabiting, state.left_home: "yes" }
+      record_first_age: [state.age_left_home]
+    valence: positive
+
+  - id: marry
+    type: event
+    from_age: 18
+    requires: { state.relationship: [dating, cohabiting], state.relationship_years: ">=1" }
+    rate:
+      base: rate.marriage
+      weights:
+        any_parent.practice: { devout: 0.8, strict: 1.1 }
+        any_parent.religion: { latter_day_saint: 1.0 }
+        state.relationship: { cohabiting: 0.4 }
+        place.norms_family: { extended: 0.3, individualist: -0.3 }
+      mods:
+        - when: { age: "18..21" }
+          add: -0.5
+        - when: { state.children: ">=1" }
+          add: 0.5
+    effects:
+      set: { state.relationship: married, state.left_home: "yes" }
+      record_first_age: [state.age_left_home]
+      channels: { secure_bond: 0.3 }
+    readings:
+      - id: settled
+        weights: { pawn.affiliation: 1.0, pawn.self_control: 0.5 }
+        effects: { channels: { secure_bond: 0.1 } }
+      - id: trapped
+        weights: { pawn.reward_drive: 1.2 }
+        mods:
+          - when: { age: "<23" }
+            add: 1.0
+        effects: { channels: { constraint: 0.5 } }
+    tags: [relationship_married]
+    valence: positive
+
+  - id: breakup
+    type: event
+    from_age: 14
+    requires: { state.relationship: [dating, cohabiting] }
+    rate:
+      base: "0.35"
+      weights:
+        pawn.self_control: -0.3
+        pawn.reward_drive: 0.3
+        pawn.threat_sensitivity: 0.3
+        state.relationship: { cohabiting: -0.9 }
+      mods:
+        - when: { state.relationship_years: ">=3" }
+          add: -0.6
+    outcomes:
+      - id: drifted_apart
+        weight: 40
+      - id: incompatible
+        weight: 25
+      - id: cheated_on
+        weight: 10
+        effects:
+          set: { state.cheated_on: "yes" }
+          channels: { rupture: 0.4, shame: 0.2 }
+      - id: cheated
+        weight: 8
+        weights: { pawn.reward_drive: 0.8, pawn.self_control: -0.8 }
+        effects: { channels: { shame: 0.3 } }
+      - id: moved_away
+        weight: 10
+        mods:
+          - when: { age: "18..23" }
+            add: 0.5
+      - id: other
+        weight: 7
+    effects:
+      set: { state.relationship: single }
+      channels: { rupture: 0.4 }
+    readings:
+      - id: people_leave
+        weights: { pawn.threat_sensitivity: 1.5 }
+        effects: { channels: { rupture: 0.3, threat_shift: 0.1 } }
+      - id: better_alone
+        weights: { pawn.affiliation: -1.5 }
+        effects: { channels: { affiliation_shift: -0.1 } }
+      - id: i_ruin_things
+        weights: { pawn.threat_sensitivity: 0.6, pawn.self_control: -0.6 }
+        effects: { channels: { shame: 0.3 } }
+      - id: moving_on
+        weights: { pawn.reward_drive: 1.0, pawn.threat_sensitivity: -1.0 }
+    tags: [relationship_end]
+
+  - id: divorce
+    type: event
+    requires: { state.relationship: married }
+    rate:
+      base: rate.divorce_adult
+      weights:
+        pawn.self_control: -0.3
+        any_parent.practice: { devout: -0.6, strict: -0.8 }
+        state.wealth: { poverty: 0.5 }
+      mods:
+        - when: { state.relationship_years: "<5" }
+          add: 0.5
+    outcomes:
+      - id: grew_apart
+        weight: 40
+      - id: infidelity
+        weight: 15
+        effects: { set: { state.cheated_on: "yes" } }
+      - id: conflict
+        weight: 30
+      - id: money
+        weight: 15
+    effects:
+      set: { state.relationship: single }
+      channels: { rupture: 0.8 }
+    readings:
+      - id: failure
+        weights: { pawn.threat_sensitivity: 1.2 }
+        effects: { channels: { shame: 0.4 } }
+      - id: relief
+        weights: { pawn.reward_drive: 1.0 }
+        effects: { channels: { reward_shift: 0.1 } }
+    tags: [relationship_end]
+
+  - id: have_child
+    type: event
+    from_age: 16
+    to_age: 47
+    rate:
+      base: "0.07"
+      weights:
+        state.relationship: { single: -2.3, dating: -1.0, cohabiting: 0.3, married: 1.3 }
+        any_parent.practice: { devout: 0.5, strict: 0.7 }
+        any_parent.religion: { latter_day_saint: 0.8 }
+        state.studying: { university: -1.2, grad_school: -1.0 }
+        state.wealth: { poverty: 0.2 }
+        pawn.self_control: -0.3
+      mods:
+        - when: { age: "16..19" }
+          add: -1.0
+        - when: { age: ">=36" }
+          add: -0.8
+        - when: { age: ">=40" }
+          add: -1.5
+        - when: { age: ">=43" }
+          add: -2.5
+        - when: { state.children: ">=2" }
+          add: -1.2
+        - when: { state.children: ">=3" }
+          add: -0.8
+    effects:
+      add: { state.children: 1 }
+      record_first_age: [state.age_first_child]
+    readings:
+      - id: joy
+        weights: { pawn.affiliation: 1.2 }
+        effects: { channels: { secure_bond: 0.3 } }
+      - id: overwhelmed
+        weights: { pawn.threat_sensitivity: 1.0, pawn.reward_drive: 0.6 }
+        mods:
+          - when: { age: "<22" }
+            add: 1.0
+        effects: { channels: { constraint: 0.5 } }
+    valence: positive
+
+  # ------------------------------------------------- adult events
+
+  - id: legal_trouble
+    type: event
+    from_age: 14
+    to_age: 45
+    rate:
+      base: "0.006"
+      weights:
+        pawn.self_control: -1.2
+        pawn.reward_drive: 0.7
+        state.peer_acceptance: { rejected: 0.4 }
+        climate.parenting_style: { neglectful: 0.6 }
+        any_parent.substance_use: { drug_dependence: 0.6 }
+      mods:
+        - when: { age: "16..24" }
+          add: 0.6
+        - when: { pawn.sex: male }
+          add: 0.8
+    effects:
+      set: { state.legal_record: "yes" }
+      channels: { shame: 0.5 }
+    readings:
+      - id: wake_up_call
+        weights: { pawn.self_control: 1.0 }
+        effects: { channels: { control_shift: 0.3 } }
+      - id: resentment
+        weights: { pawn.threat_sensitivity: 1.0 }
+        effects: { channels: { threat_shift: 0.2, shame: 0.2 } }
+
+  - id: illness
+    type: event
+    from_age: 18
+    rate:
+      base: "0.01"
+      weights:
+        state.wealth: { poverty: 0.4 }
+      mods:
+        - when: { age: ">=35" }
+          add: 0.5
+    effects:
+      add: { state.illnesses: 1 }
+      channels: { threat_shift: 0.3 }
+    readings:
+      - id: fragile
+        weights: { pawn.threat_sensitivity: 1.5 }
+        effects: { channels: { threat_shift: 0.3 } }
+      - id: resilient
+        weights: { pawn.self_control: 1.0 }
+        effects: { channels: { control_shift: 0.1 } }
+
+  - id: windfall
+    type: event
+    from_age: 18
+    rate:
+      base: "0.004"
+      weights:
+        state.wealth: { wealthy: 0.5 }
+    effects:
+      channels: { reward_shift: 0.2 }
+    valence: positive
+
+  # ------------------------------------------------- work
+
+  - id: career_path
+    note: Re-chosen every year; staying put gets sticky_bonus, so changes are occasional.
+    type: fork
+    frequency: per_year
+    from_age: 16
+    requires: { state.studying: none, state.military: "!serving", state.education: "!primary" }
+    sticky_key: state.career
+    sticky_bonus: 4.5
+    sticky_except: [none, unemployed]
+    options:
+      - id: unemployed
+        weight: 0.15
+        weights:
+          place.economic_era: { recession: 1.0, crisis: 1.5, boom: -0.6 }
+          state.education: { some_secondary: 0.5 }
+        effects: { set: { state.career: unemployed } }
+      - id: unskilled_labor
+        weights:
+          state.education: { some_secondary: 1.0, secondary: 0.5, some_college: -0.5, bachelors: -2.0, masters: -3.0, doctorate_professional: -3.0 }
+        effects: { set: { state.career: unskilled_labor } }
+      - id: service
+        weight: 1.5
+        weights:
+          pawn.affiliation: 0.3
+          state.education: { bachelors: -1.0, masters: -2.0, doctorate_professional: -2.5 }
+        effects: { set: { state.career: service } }
+      - id: clerical
+        weights:
+          pawn.self_control: 0.4
+          state.education: { some_secondary: -1.0, secondary: 0.4, some_college: 0.8, bachelors: 0.2 }
+        effects: { set: { state.career: clerical } }
+      - id: skilled_trade
+        weight: 0.6
+        weights:
+          state.education: { trade: 3.0 }
+          any_parent.occupation: { skilled_trade: 0.6 }
+        effects: { set: { state.career: skilled_trade } }
+      - id: public_sector
+        weight: 0.7
+        weights:
+          state.education: { bachelors: 0.8, masters: 1.0, some_secondary: -1.0 }
+          state.military: { veteran: 1.0 }
+        effects: { set: { state.career: public_sector } }
+      - id: small_business
+        weight: 0.3
+        weights:
+          pawn.reward_drive: 0.5
+          pawn.threat_sensitivity: -0.4
+          any_parent.occupation: { small_business: 1.2 }
+          state.wealth: { affluent: 0.5, wealthy: 0.7 }
+        effects: { set: { state.career: small_business } }
+      - id: creative
+        weight: 0.2
+        weights:
+          state.field: { arts: 2.5, humanities: 0.6 }
+          pawn.reward_drive: 0.3
+        effects: { set: { state.career: creative } }
+      - id: professional
+        weight: 1.5
+        requires: { state.education: [bachelors, masters, doctorate_professional] }
+        weights:
+          state.field: { stem: 1.0, business: 0.8, health: 1.0 }
+          state.education: { masters: 0.5, doctorate_professional: 1.0 }
+        effects: { set: { state.career: professional } }
+      - id: academic
+        weight: 0.3
+        requires: { state.education: [masters, doctorate_professional] }
+        weights:
+          state.education: { doctorate_professional: 2.5 }
+        effects: { set: { state.career: academic } }
+      - id: manager_executive
+        weight: 0.2
+        requires: { state.education: [some_college, bachelors, masters, doctorate_professional] }
+        weights:
+          state.field: { business: 1.0 }
+          pawn.reward_drive: 0.3
+          pawn.self_control: 0.3
+        mods:
+          - when: { age: ">=30" }
+            add: 1.0
+        effects: { set: { state.career: manager_executive } }
+      - id: homemaker
+        weight: 0.05
+        weights:
+          any_parent.occupation: { homemaker: 0.5 }
+          place.norms_gender: { traditional: 0.8, egalitarian: -0.5 }
+        mods:
+          - when: { pawn.sex: female }
+            add: 1.0
+          - when: { state.children: ">=1" }
+            add: 1.5
+        effects: { set: { state.career: homemaker } }
+
+  - id: job_loss
+    type: event
+    from_age: 18
+    requires: { state.career: [unskilled_labor, service, clerical, skilled_trade, public_sector, small_business, creative, professional, academic, manager_executive] }
+    rate:
+      base: rate.job_loss
+      weights:
+        place.economic_era: { recession: 0.8, crisis: 1.3, boom: -0.5 }
+        pawn.self_control: -0.4
+        state.career: { unskilled_labor: 0.5, service: 0.4, professional: -0.4, public_sector: -0.8, academic: -0.8 }
+    effects:
+      set: { state.career: unemployed }
+      channels: { scarcity: 0.4, shame: 0.2 }
+    readings:
+      - id: my_fault
+        weights: { pawn.threat_sensitivity: 1.2 }
+        effects: { channels: { shame: 0.3 } }
+      - id: the_system
+        weights: { pawn.reward_drive: 0.8 }
+        effects: { channels: { threat_shift: 0.1 } }
+      - id: next_thing
+        weights: { pawn.self_control: 1.0 }
+        effects: { channels: { control_shift: 0.1 } }
+
+  # ------------------------------------------------- money and home
+
+  - id: income
+    note: Spec 4.11, income is none when there is no career.
+    type: condition
+    kind: roll
+    frequency: per_year
+    from_age: 16
+    requires: { state.career: "!none" }
+    default: none
+    values: [none, low, medium, high, very_high]
+    weights: { none: 1, low: 30, medium: 40, high: 20, very_high: 5 }
+    mods:
+      - when: { state.career: student }
+        mul: { none: 3, low: 4, medium: 0.1, high: 0, very_high: 0 }
+      - when: { state.career: unemployed }
+        mul: { none: 30, low: 2, medium: 0.05, high: 0, very_high: 0 }
+      - when: { state.career: homemaker }
+        mul: { none: 50, low: 0.5, medium: 0.05, high: 0, very_high: 0 }
+      - when: { state.career: [unskilled_labor, service] }
+        mul: { low: 2.5, high: 0.15, very_high: 0.02 }
+      - when: { state.career: clerical }
+        mul: { medium: 1.5, high: 0.4, very_high: 0.05 }
+      - when: { state.career: [skilled_trade, public_sector, military] }
+        mul: { medium: 1.6, high: 0.9, very_high: 0.2 }
+      - when: { state.career: small_business }
+        mul: { low: 1.3, high: 1.3, very_high: 2 }
+      - when: { state.career: creative }
+        mul: { low: 1.8, high: 0.6, very_high: 1.0 }
+      - when: { state.career: [professional, academic] }
+        mul: { low: 0.2, high: 3, very_high: 2 }
+      - when: { state.career: manager_executive }
+        mul: { low: 0.1, medium: 0.6, high: 3.5, very_high: 5 }
+      - when: { age: "16..24" }
+        mul: { high: 0.4, very_high: 0.2 }
+      - when: { place.economic_era: [recession, crisis] }
+        mul: { none: 1.5, low: 1.2 }
+      - note: Income is sticky from year to year.
+        when: { state.income: low }
+        mul: { low: 3 }
+      - when: { state.income: medium }
+        mul: { medium: 3 }
+      - when: { state.income: high }
+        mul: { high: 3 }
+      - when: { state.income: very_high }
+        mul: { very_high: 3 }
+
+  - id: debt
+    type: condition
+    kind: drift
+    frequency: per_year
+    from_age: 18
+    values: [none, manageable, heavy, crushing]
+    initial_value: none
+    up:
+      base: "0.03"
+      weights:
+        state.studying: { university: 1.6, grad_school: 1.8, community_college: 0.6, trade_school: 0.5 }
+        state.wealth: { poverty: 0.4, working_class: 0.3, affluent: -1.5, wealthy: -2.5 }
+        pawn.self_control: -0.8
+        state.income: { none: 0.5, low: 0.3, high: -0.6, very_high: -1.0 }
+        state.career: { unemployed: 0.6 }
+    down:
+      base: "0.08"
+      weights:
+        state.income: { none: -1.5, medium: 0.4, high: 1.0, very_high: 1.5 }
+        pawn.self_control: 0.5
+        state.studying: { university: -2.0, grad_school: -2.0 }
+
+  - id: wealth
+    note: The household's money while growing up, then the pawn's own standard of living.
+    type: condition
+    kind: drift
+    frequency: per_year
+    values: [poverty, working_class, lower_middle, upper_middle, affluent, wealthy]
+    initial: household.wealth
+    log: true
+    up:
+      base: "0.03"
+      weights:
+        place.economic_era: { boom: 0.7, steady_growth: 0.3, recession: -0.6, crisis: -1.0 }
+        any_parent.occupation: { professional: 0.3, manager_executive: 0.4, small_business: 0.3 }
+        state.education: { bachelors: 0.3, masters: 0.5, doctorate_professional: 0.6 }
+        state.wealth: { poverty: 0.5, working_class: 0.2, affluent: -0.8, wealthy: -1.5 }
+      mods:
+        - note: Adults drift toward the standard of living their income supports.
+          when: { state.income: [high, very_high], state.wealth: [poverty, working_class, lower_middle] }
+          add: 1.8
+        - when: { state.income: very_high, state.wealth: upper_middle }
+          add: 1.2
+        - when: { state.income: medium, state.wealth: [poverty, working_class] }
+          add: 1.2
+        - when: { state.income: [none, low], age: ">=18" }
+          add: -1.0
+    down:
+      base: "0.03"
+      weights:
+        place.economic_era: { recession: 0.6, crisis: 1.0, boom: -0.4 }
+        any_parent.substance_use: { alcohol_dependence: 0.6, drug_dependence: 0.8 }
+        state.debt: { heavy: 0.6, crushing: 1.0 }
+        state.career: { unemployed: 1.0 }
+        state.wealth: { working_class: -0.3, upper_middle: 0.2, affluent: 0.6, wealthy: 1.0 }
+      mods:
+        - when: { state.parents_together: "no", age: "<18" }
+          add: 0.4
+        - note: Adults drift toward the standard of living their income supports.
+          when: { state.income: [none, low], state.wealth: [lower_middle, upper_middle, affluent, wealthy], age: ">=18" }
+          add: 1.5
+        - when: { state.income: medium, state.wealth: [affluent, wealthy] }
+          add: 1.2
+        - when: { state.income: high, state.wealth: wealthy }
+          add: 0.8
+
+  - id: current_household
+    note: Who the pawn lives with.
+    type: condition
+    kind: derive
+    from_age: 16
+    values: [with_family, alone, roommates, partner, partner_and_children, single_parent]
+    rules:
+      - when: { state.left_home: "no" }
+        value: with_family
+      - when: { state.relationship: [cohabiting, married], state.children: ">=1" }
+        value: partner_and_children
+      - when: { state.relationship: [cohabiting, married] }
+        value: partner
+      - when: { state.children: ">=1" }
+        value: single_parent
+      - when: { state.income: [none, low] }
+        value: roommates
+      - value: alone
+
+  - id: relationship_years
+    note: Counted at the end of each year, after that year's relationship events.
+    type: condition
+    kind: counter
+    while: { state.relationship: "!single" }

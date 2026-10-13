@@ -62,7 +62,7 @@ public class GameDataTests
               - id: a
                 values: [x, y]
                 mods:
-                  - when: { year: 1990 }
+                  - when: { year: [1990, 1991] }
                     mul: { x: 2 }
         """, "is numeric")]
     [InlineData("""

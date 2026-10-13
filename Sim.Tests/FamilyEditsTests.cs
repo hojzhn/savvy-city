@@ -94,6 +94,49 @@ public class FamilyEditsTests
     }
 
     [Fact]
+    public void RenamesFollowReferencesIntoLife()
+    {
+        var data = TestData.Load();
+        var f = Family();
+        var life = YamlIO.Clone(data.LifeSource!);
+
+        // household.wealth is life's initial wealth; practice values are life weights.
+        var (g, wealth) = FamilyEdits.FindItem(f, "household.wealth")!.Value;
+        FamilyEdits.RenameItem(f, g, wealth, "money", life);
+        var (pg, practice) = FamilyEdits.FindItem(f, "parent.practice")!.Value;
+        FamilyEdits.RenameValue(f, pg, practice, "devout", "very_devout", life);
+
+        var rebuilt = GameData.FromFiles(YamlIO.Clone(data.Config), data.LocationsSource, data.ErasSource, f, life);
+        Assert.NotNull(rebuilt.Life);
+        Assert.Contains(FamilyEdits.ReferencesTo(f, "household.money", life), r => r.StartsWith("life.yaml wealth"));
+        Assert.Empty(FamilyEdits.ReferencesTo(f, "household.wealth", life));
+        var pawn = new PawnGenerator(rebuilt).Generate(3);
+        Assert.NotEmpty(pawn.History);
+    }
+
+    [Fact]
+    public void RenamesFollowReferencesIntoAdult()
+    {
+        var data = TestData.Load();
+        var f = Family();
+        var life = YamlIO.Clone(data.LifeSource!);
+        var adult = YamlIO.Clone(data.AdultSource!);
+
+        // adult.yaml reads parent religion (inherit), household.wealth and temperament z-scores.
+        var (g, religion) = FamilyEdits.FindItem(f, "parent.religion")!.Value;
+        FamilyEdits.RenameItem(f, g, religion, "faith", life, adult);
+        var (hg, wealth) = FamilyEdits.FindItem(f, "household.wealth")!.Value;
+        FamilyEdits.RenameItem(f, hg, wealth, "money", life, adult);
+        var config = YamlIO.Clone(data.Config);
+        FamilyEdits.RenameTemperamentTrait(config, f, "threat_sensitivity", "anxiousness", life, adult);
+
+        var rebuilt = GameData.FromFiles(config, data.LocationsSource, data.ErasSource, f, life, adult);
+        Assert.NotNull(rebuilt.Adult);
+        Assert.Contains(FamilyEdits.ReferencesTo(f, "parent.faith", life, adult), r => r.StartsWith("adult.yaml religion"));
+        Assert.Contains(FamilyEdits.ReferencesTo(f, "z.anxiousness", life, adult), r => r.StartsWith("adult.yaml"));
+    }
+
+    [Fact]
     public void UniqueIdsAvoidCollisions()
     {
         var f = Family();

@@ -1,5 +1,9 @@
 # Global settings for pawn generation.
 #
+# current_city: the city the game takes place in (a location id from
+#   locations.yaml). Every pawn lives there now; where they were born comes
+#   from that city's origins table.
+#
 # age_min / age_max: age range of generated pawns. Birth years spread evenly
 #   across present_year - age_max .. present_year - age_min.
 #
@@ -11,6 +15,7 @@
 # The Traits editor in the game rewrites this file when it saves, keeping this
 # header but not comments below it.
 
+current_city: manhattan
 present_year: 2026
 age_min: 21
 age_max: 45

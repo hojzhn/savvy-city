@@ -13,3 +13,22 @@ economic_eras:
   - { from: 2010, era: steady_growth }
   - { from: 2020, era: recession }
   - { from: 2021, era: steady_growth }
+
+# Base rates for life events (life.yaml uses them as base: rate.<name>), by
+# calendar year. An entry applies until a later entry sets the same rate.
+# A location period can override a rate with its own `rates` map.
+# PLACEHOLDER VALUES: rough guesses for tuning, not researched figures.
+#   divorce_childhood  chance married parents split at some point while the pawn is 0-17
+#   marriage           yearly chance a couple together a year or more marries
+#   divorce_adult      yearly chance a married pawn divorces
+#   job_loss           yearly chance an employed pawn loses their job
+#   first_sex          yearly chance from 17 on (younger ages are lowered in life.yaml)
+base_rates:
+  - from: 1975
+    rates: { divorce_childhood: 0.34, marriage: 0.20, divorce_adult: 0.025, job_loss: 0.05, first_sex: 0.24 }
+  - from: 1990
+    rates: { divorce_childhood: 0.30, marriage: 0.16, divorce_adult: 0.022 }
+  - from: 2000
+    rates: { divorce_childhood: 0.26, marriage: 0.13, divorce_adult: 0.019, first_sex: 0.22 }
+  - from: 2010
+    rates: { divorce_childhood: 0.22, marriage: 0.11, divorce_adult: 0.016, first_sex: 0.20 }

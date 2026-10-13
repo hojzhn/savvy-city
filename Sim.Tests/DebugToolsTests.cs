@@ -52,7 +52,7 @@ public class DebugToolsTests
     [Fact]
     public void LocationAndYearOverridesChangeContext()
     {
-        var p = With(5, o => { o.Set("pawn.location", "rural_ohio"); o.Set("year", 1985); });
+        var p = With(5, o => { o.Set("pawn.birth_location", "rural_ohio"); o.Set("year", 1985); });
         Assert.Equal("rural_ohio", p.BirthLocation.Id);
         Assert.Equal(1985, p.BirthYear);
         Assert.Equal("rural", p.Facts["context.urbanicity"]);

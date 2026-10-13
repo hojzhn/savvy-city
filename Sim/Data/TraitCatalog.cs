@@ -2,7 +2,7 @@ using System.Globalization;
 
 namespace YouWillDate.Sim.Data;
 
-public enum TraitKind { Seed, Temperament, Context, Table, Derived }
+public enum TraitKind { Seed, Temperament, Context, Table, Derived, Life, Adult }
 
 /// <summary>One trait a pawn can have, as defined by the data files.</summary>
 public sealed class TraitInfo
@@ -30,7 +30,7 @@ public sealed class TraitInfo
 }
 
 /// <summary>Every trait in the data, in generation order, with dependency links.</summary>
-public sealed class TraitCatalog
+public sealed partial class TraitCatalog
 {
     public IReadOnlyList<TraitInfo> Traits { get; }
     readonly Dictionary<string, TraitInfo> _byKey;
@@ -49,11 +49,31 @@ public sealed class TraitCatalog
             HowDetermined = $"Random, spread evenly over {data.MinBirthYear}–{data.MaxBirthYear}. " +
                             $"Set by present_year ({cfg.PresentYear}) minus age_max ({cfg.AgeMax}) and age_min ({cfg.AgeMin}) in config.yaml.",
         });
+        var locationIds = data.Locations.Select(l => l.Id).ToList();
+        var city = data.CurrentCity;
         list.Add(new TraitInfo
         {
-            Key = "pawn.location", Section = "Seed", Label = "birth location", Kind = TraitKind.Seed,
-            FactKeys = ["pawn.location"], Values = data.Locations.Select(l => l.Id).ToList(),
-            HowDetermined = "Random, weighted by each location's population in locations.yaml.",
+            Key = "pawn.current_city", Section = "Seed", Label = "current city", Kind = TraitKind.Seed,
+            FactKeys = ["pawn.current_city"], Values = locationIds,
+            HowDetermined = $"Not random: every pawn lives in the city the game takes place in, {city.Name} " +
+                            "(current_city in config.yaml).",
+        });
+        list.Add(new TraitInfo
+        {
+            Key = "pawn.birth_location", Section = "Seed", Label = "birth location", Kind = TraitKind.Seed,
+            FactKeys = ["pawn.birth_location"], Values = locationIds, Reads = ["pawn.current_city"],
+            HowDetermined = city.Origins is null
+                ? $"Random, weighted by each location's population, because {city.Name} has no origins table in locations.yaml. " +
+                  "Add one to say where people living there were born."
+                : $"Random, weighted by where people living in {city.Name} were born (its origins table in locations.yaml). " +
+                  "The birth location sets the birth context below.",
+        });
+        list.Add(new TraitInfo
+        {
+            Key = "pawn.born_locally", Section = "Seed", Label = "born locally", Kind = TraitKind.Derived,
+            FactKeys = ["pawn.born_locally"], Values = ["yes", "no"],
+            Reads = ["pawn.birth_location", "pawn.current_city"],
+            HowDetermined = "Derived: 'yes' when the birth location is the current city.",
         });
         list.Add(new TraitInfo
         {
@@ -82,14 +102,15 @@ public sealed class TraitCatalog
         {
             string how = field switch
             {
-                "urbanicity" => "Looked up from the birth location in locations.yaml.",
-                "economic_era" => "Looked up by birth year in eras.yaml, unless the location's period sets its own economic_era.",
-                _ => "Looked up from the birth location's period covering the birth year in locations.yaml.",
+                "urbanicity" => "Looked up from the birth location in locations.yaml (where the pawn grew up, not where they live now).",
+                "economic_era" => "Looked up by birth year in eras.yaml, unless the birth location's period sets its own economic_era.",
+                _ => "Looked up from the birth location's period covering the birth year in locations.yaml (where the pawn grew up, not where they live now).",
             };
             list.Add(new TraitInfo
             {
-                Key = $"context.{field}", Section = "Context", Label = field, Kind = TraitKind.Context,
+                Key = $"context.{field}", Section = "Birth context", Label = field, Kind = TraitKind.Context,
                 FactKeys = [$"context.{field}"], Values = values, HowDetermined = how,
+                Reads = field == "economic_era" ? ["pawn.birth_location", "year"] : ["pawn.birth_location"],
             });
         }
 
@@ -124,6 +145,9 @@ public sealed class TraitCatalog
                         HowDetermined = $"Derived: 'yes' when the mother's and father's {item.Id} match.",
                     });
         }
+
+        if (data.Life is not null) AddLife(list, data);
+        if (data.Adult is not null) AddAdult(list, data);
 
         Traits = list;
         _byKey = list.ToDictionary(t => t.Key);

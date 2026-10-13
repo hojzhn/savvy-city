@@ -37,6 +37,12 @@ public class PawnGeneratorTests
         foreach (var p in Population.Value.Take(2000))
         foreach (var (key, value) in p.Facts.Categorical)
         {
+            if (key.StartsWith("life."))
+            {
+                var item = TestData.Load().Life!.Items.Single(i => i.Id == key[5..]);
+                Assert.Contains(value, item.SummaryValues);
+                continue;
+            }
             string canonical = key.StartsWith("mother.") || key.StartsWith("father.")
                 ? "parent." + key[(key.IndexOf('.') + 1)..]
                 : key;

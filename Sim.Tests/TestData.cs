@@ -24,7 +24,12 @@ static class TestData
 
     public static string ReadFile(string name) => File.ReadAllText(Path.Combine(DataDir, name));
 
-    /// <summary>Real config, locations, and eras with a custom family table.</summary>
+    /// <summary>Real data with a custom family table.</summary>
     public static GameData WithFamily(string familyYaml) =>
-        GameData.FromYaml(ReadFile("config.yaml"), ReadFile("locations.yaml"), ReadFile("eras.yaml"), familyYaml);
+        GameData.FromYaml(ReadFile("config.yaml"), ReadFile("locations.yaml"), ReadFile("eras.yaml"), familyYaml,
+                          ReadFile("life.yaml"), ReadFile("adult.yaml"));
+
+    /// <summary>Real data with a custom life.yaml, and no adult traits (they read life items).</summary>
+    public static GameData WithLife(string lifeYaml) =>
+        GameData.FromYaml(ReadFile("config.yaml"), ReadFile("locations.yaml"), ReadFile("eras.yaml"), ReadFile("family.yaml"), lifeYaml);
 }

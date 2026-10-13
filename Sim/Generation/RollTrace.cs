@@ -47,4 +47,8 @@ public sealed class GenerateOptions
     public Facts? Overrides { get; init; }
     /// <summary>Record a <see cref="RollTrace"/> for every fact (slower; for debugging).</summary>
     public bool Trace { get; init; }
+    /// <summary>Write a step-by-step explanation into each life history entry (slower; for the inspector).</summary>
+    public bool LifeDetails { get; init; }
+    /// <summary>Stop after the life simulation (used to calibrate adult traits).</summary>
+    public bool SkipAdult { get; init; }
 }

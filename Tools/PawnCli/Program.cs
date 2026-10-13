@@ -93,7 +93,7 @@ void RunPawns()
     for (int i = 0; i < count; i++)
     {
         var p = gen.Generate(seed + (ulong)i, options);
-        Console.WriteLine(PawnText.Describe(p));
+        Console.WriteLine(PawnText.Describe(p, data));
         foreach (var key in why)
         {
             var t = p.TraceFor(key);

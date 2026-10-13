@@ -1,0 +1,976 @@
+# Adult traits (spec section 6, plus docs/spec/social-circle-and-health.md).
+# STARTING VALUES FOR TUNING: weights follow the spec's estimates where it gives
+# them; the rest are rough guesses.
+#
+# The adult profile is computed once, after the life simulation. Groups and
+# items run in the order of this file; an item can read items above it.
+#
+# Inputs prepared before any item runs
+#   z.<trait>              temperament as a z-score (spec 6.1 trait scale)
+#   wchannel.<channel>     stage-weighted channel sums from the life history (spec 6.2)
+#   hist.partner_count, hist.longest_relationship (years), hist.moved_as_adult (yes/no)
+#   plus every fact from the starting point and the life simulation
+#   (state.*, life.*, channel.*, place.*, age, household.*, mother.*, ...)
+#
+# Item types (each writes adult.<id> unless noted)
+#   score   raw = base + weights + mods + N(0, sigma), then by scale:
+#             z (default) normalized on a calibration batch and clamped to ±3,
+#             z_raw clamped only, unit sigmoid(raw), signed tanh(raw), clamp01
+#   count   Poisson draw with log mean = base + weights + mods + N(0, sigma), capped
+#   blend   revealed preference: stated + (1 - sigmoid(self_insight)) × (pull - stated)
+#   roll    weighted values (odds), plus inherit_weight for the value of each
+#           `inherit` fact, times mul mods
+#   choice  options: chance ∝ weight × exp(utility / temperature)
+#   derive  value of the first rule whose conditions hold
+#   list    entries (kinks, health conditions): each fires with
+#           p = sigmoid(logit(prevalence) + weights); the `max` most likely are
+#           kept, with an intensity level and a disclosure. Writes adult.<id>.<entry>.
+#   goals   Gumbel-top-k pick of pick_min..pick_max goals, each with a deadline.
+#           Writes adult.<id>.<goal> = none / active / achieved / missed.
+#   issues  positions on issues (-1 progressive .. +1 traditional) from the
+#           political axes, personal stakes and noise. Writes adult.<id>.<issue>
+#           and adult.<id>.<issue>_salience.
+#   dealbreakers  writes adult.<id>.<rule> = none / soft / hard
+#   inner_life    core wound, private belief, want, need, secrets, regret
+#           (writes adult.core_wound, wound_impact, private_belief, want, need,
+#           regret, secret_count)
+#
+# Weights: fact: number (numeric facts) or fact: { value: number } (categorical).
+# Mods: { when: {conditions}, add: number } (roll items use mul instead of add).
+#
+# Use `note:` fields rather than comments below this header.
+
+calibration_size: 600
+
+groups:
+
+  # ---------------------------------------------------------------- personality
+  - id: personality
+    title: Personality
+    note: Spec 6.4. Five adult traits from base temperament and the life channels.
+    items:
+      - id: neuroticism
+        type: score
+        sigma: 0.4
+        weights: { z.threat_sensitivity: 0.7, wchannel.threat_shift: 1.0, wchannel.shame: 0.4, wchannel.secure_bond: -0.3 }
+      - id: extraversion
+        type: score
+        sigma: 0.4
+        weights: { z.reward_drive: 0.5, z.affiliation: 0.3, wchannel.reward_shift: 0.8, wchannel.affiliation_shift: 0.5 }
+      - id: novelty_seeking
+        type: score
+        sigma: 0.4
+        weights: { z.reward_drive: 0.6, wchannel.reward_shift: 0.6, wchannel.constraint: 0.3 }
+      - id: conscientiousness
+        type: score
+        sigma: 0.4
+        weights: { z.self_control: 0.7, wchannel.control_shift: 1.0, wchannel.scarcity: 0.2 }
+      - id: agreeableness
+        type: score
+        sigma: 0.4
+        weights: { z.affiliation: 0.5, z.threat_sensitivity: -0.2, wchannel.affiliation_shift: 0.6, wchannel.rupture: -0.3 }
+      - id: self_insight
+        note: Spec 6.4. Low self-insight widens the gap between what a pawn says it wants and what it picks.
+        type: score
+        scale: z_raw
+        sigma: 0.5
+        weights: { adult.novelty_seeking: 0.4, adult.neuroticism: -0.3, adult.conscientiousness: 0.2 }
+
+  # ----------------------------------------------------------------- attachment
+  - id: attachment
+    title: Attachment
+    note: Spec 6.5. Two axes; the style comes from the quadrant.
+    items:
+      - id: anxiety
+        type: score
+        sigma: 0.4
+        weights: { z.threat_sensitivity: 0.4, wchannel.care_inconsistency: 0.5, wchannel.rupture: 0.3, wchannel.secure_bond: -0.4 }
+        mods:
+          - note: Earned security from a long relationship.
+            when: { hist.longest_relationship: ">=6" }
+            add: -0.3
+      - id: avoidance
+        type: score
+        sigma: 0.4
+        weights: { z.affiliation: -0.3, wchannel.care_coldness: 0.5, wchannel.rupture: 0.2, wchannel.secure_bond: -0.3 }
+        mods:
+          - note: Earned security from a long relationship.
+            when: { hist.longest_relationship: ">=6" }
+            add: -0.3
+      - id: attachment_style
+        type: derive
+        values: [secure, anxious, avoidant, fearful_avoidant]
+        rules:
+          - when: { adult.anxiety: ">=0.5", adult.avoidance: ">=0.5" }
+            value: fearful_avoidant
+          - when: { adult.anxiety: ">=0.5" }
+            value: anxious
+          - when: { adult.avoidance: ">=0.5" }
+            value: avoidant
+          - value: secure
+
+  # ------------------------------------------------------------ physical health
+  - id: physical_health
+    title: Physical health
+    note: Social circle and health, section 2.
+    items:
+      - id: smoking
+        type: choice
+        options:
+          - id: never
+            weight: 6
+            weights: { adult.conscientiousness: 0.4 }
+          - id: former
+            weight: 1.5
+            weights: { adult.conscientiousness: 0.3 }
+          - id: occasional
+            weight: 1
+            weights: { adult.novelty_seeking: 0.4, any_parent.substance_use: { heavy_drinking: 0.3 } }
+          - id: daily
+            weight: 1
+            weights: { adult.conscientiousness: -0.5, state.wealth: { poverty: 0.6, working_class: 0.3, affluent: -0.6 }, wchannel.scarcity: 0.3 }
+            mods:
+              - when: { year: "<1990" }
+                add: 0.4
+      - id: drinking
+        type: choice
+        options:
+          - id: none
+            weight: 2
+            weights: { adult.conscientiousness: 0.2, any_parent.practice: { devout: 0.8, strict: 1.2 } }
+          - id: light
+            weight: 4
+          - id: moderate
+            weight: 3
+            weights: { adult.extraversion: 0.3 }
+          - id: heavy
+            weight: 0.8
+            weights: { z.reward_drive: 0.5, adult.neuroticism: 0.3, any_parent.substance_use: { heavy_drinking: 0.5, alcohol_dependence: 0.8 } }
+          - id: dependent
+            weight: 0.25
+            weights: { adult.neuroticism: 0.5, adult.conscientiousness: -0.5, any_parent.substance_use: { alcohol_dependence: 1.0 } }
+      - id: activity
+        type: choice
+        options:
+          - id: sedentary
+            weight: 2
+            weights: { adult.conscientiousness: -0.4 }
+          - id: light
+            weight: 3
+            weights: { place.urbanicity: { urban_core: 0.4 } }
+          - id: active
+            weight: 2
+            weights: { adult.conscientiousness: 0.4, state.income: { high: 0.3, very_high: 0.4 } }
+          - id: athletic
+            weight: 0.6
+            weights: { adult.conscientiousness: 0.5, adult.novelty_seeking: 0.3 }
+      - id: sleep
+        type: choice
+        options:
+          - id: poor
+            weight: 1
+            weights: { adult.neuroticism: 0.6 }
+            mods:
+              - when: { state.children: ">=1" }
+                add: 0.2
+          - id: fair
+            weight: 2
+          - id: good
+            weight: 2
+            weights: { adult.conscientiousness: 0.3, adult.neuroticism: -0.3 }
+      - id: health_score
+        note: Childhood adversity, money and habits shape adult health.
+        type: score
+        sigma: 0.7
+        base: 1.05
+        weights:
+          age: -0.03
+          state.income: { none: -0.25, low: -0.1, high: 0.15, very_high: 0.25 }
+          state.education: { some_secondary: -0.15, bachelors: 0.1, masters: 0.15, doctorate_professional: 0.2 }
+          adult.conscientiousness: 0.2
+          wchannel.scarcity: -0.25
+          wchannel.care_coldness: -0.25
+          wchannel.care_inconsistency: -0.25
+          adult.smoking: { occasional: -0.25, daily: -0.6 }
+          adult.drinking: { heavy: -0.35, dependent: -0.6 }
+          adult.activity: { sedentary: -0.25, active: 0.2, athletic: 0.35 }
+          state.illnesses: -0.35
+          household.birth_term: { premature: -0.1, very_premature: -0.2 }
+      - id: general_health
+        type: derive
+        values: [excellent, very_good, good, fair, poor]
+        rules:
+          - when: { adult.health_score: ">0.85" }
+            value: excellent
+          - when: { adult.health_score: ">0" }
+            value: very_good
+          - when: { adult.health_score: ">-0.85" }
+            value: good
+          - when: { adult.health_score: ">-1.6" }
+            value: fair
+          - value: poor
+      - id: health_conditions
+        type: list
+        max: 3
+        levels: [mild, moderate, severe]
+        disclosure:
+          base: 0.8
+          weights: { adult.neuroticism: -0.5, adult.extraversion: 0.3, hist.partner_count: 0.1 }
+        entries:
+          - id: asthma
+            prevalence: 0.08
+            weights: { household.birth_term: { premature: 0.5, very_premature: 0.8 }, wchannel.scarcity: 0.2 }
+            stigma: 0.1
+          - id: migraine
+            prevalence: 0.1
+            weights: { adult.neuroticism: 0.3 }
+            mods:
+              - when: { pawn.sex: female }
+                add: 0.7
+            stigma: 0.1
+          - id: type_1_diabetes
+            prevalence: 0.005
+            stigma: 0.2
+          - id: type_2_diabetes
+            prevalence: 0.05
+            weights: { adult.health_score: -0.6 }
+            mods:
+              - when: { age: ">=35" }
+                add: 0.5
+            stigma: 0.3
+          - id: hypertension
+            prevalence: 0.08
+            weights: { adult.health_score: -0.5, adult.neuroticism: 0.2 }
+            mods:
+              - when: { age: ">=35" }
+                add: 0.6
+            stigma: 0.1
+          - id: chronic_back_pain
+            prevalence: 0.08
+            weights: { state.career: { unskilled_labor: 0.5, skilled_trade: 0.4 }, adult.activity: { sedentary: 0.3 } }
+            stigma: 0.1
+          - id: ibs_or_crohns
+            prevalence: 0.06
+            weights: { adult.neuroticism: 0.3 }
+            stigma: 0.4
+          - id: autoimmune_condition
+            prevalence: 0.04
+            mods:
+              - when: { pawn.sex: female }
+                add: 0.8
+            stigma: 0.2
+          - id: epilepsy
+            prevalence: 0.01
+            stigma: 0.3
+          - id: hearing_loss
+            prevalence: 0.03
+            mods:
+              - when: { age: ">=40" }
+                add: 0.5
+            stigma: 0.2
+          - id: mobility_disability
+            prevalence: 0.02
+            visible: true
+          - id: endometriosis
+            prevalence: 0.08
+            sex: female
+            stigma: 0.3
+          - id: pcos
+            prevalence: 0.08
+            sex: female
+            stigma: 0.3
+          - id: infertility
+            note: Affects the children goal; the text layer can use it.
+            prevalence: 0.05
+            mods:
+              - when: { age: ">=38" }
+                add: 0.7
+            stigma: 0.5
+          - id: hiv
+            prevalence: 0.004
+            weights: { hist.partner_count: 0.1, adult.novelty_seeking: 0.3 }
+            stigma: 0.9
+
+  # -------------------------------------------------------------------- beliefs
+  - id: beliefs
+    title: Beliefs and politics
+    note: Spec 6.6 and the Political Alignment section. Axes run from -1 (left/liberty) to +1 (right/order).
+    items:
+      - id: economic
+        note: Redistribution (-1) to markets and low taxes (+1).
+        type: score
+        scale: signed
+        sigma: 0.45
+        weights:
+          household.politics_leaning: { far_left: -0.9, left: -0.6, center_left: -0.3, center_right: 0.3, right: 0.6, far_right: 0.9 }
+          state.wealth: { poverty: -0.2, affluent: 0.2, wealthy: 0.3 }
+          state.career: { small_business: 0.3, manager_executive: 0.2, academic: -0.2 }
+          place.local_politics: { strongly_left: -0.15, left_leaning: -0.05, right_leaning: 0.05, strongly_right: 0.15 }
+          z.threat_sensitivity: 0.05
+      - id: cultural
+        note: Progressive (-1) to traditional (+1).
+        type: score
+        scale: signed
+        sigma: 0.45
+        weights:
+          household.politics_leaning: { far_left: -0.8, left: -0.5, center_left: -0.25, center_right: 0.25, right: 0.5, far_right: 0.8 }
+          any_parent.practice: { devout: 0.4, strict: 0.55 }
+          context.norms_sex: { restrictive: 0.3, permissive: -0.2 }
+          state.education: { bachelors: -0.15, masters: -0.25, doctorate_professional: -0.3 }
+          place.urbanicity: { urban_core: -0.15 }
+          adult.novelty_seeking: -0.1
+          z.threat_sensitivity: 0.1
+      - id: authority
+        note: Personal liberty (-1) to order and strong rule (+1). Threat sensitivity has a small effect, as the spec asks.
+        type: score
+        scale: signed
+        sigma: 0.45
+        weights:
+          household.politics_leaning: { far_left: 0.1, far_right: 0.4, right: 0.2 }
+          z.threat_sensitivity: 0.12
+          state.military: { serving: 0.3, veteran: 0.3 }
+          climate.parenting_style: { strict: 0.2, permissive: -0.15 }
+          adult.novelty_seeking: -0.15
+      - id: political_consistency
+        note: Most voters fall at the low end (Converse 1964), so the default is low.
+        type: score
+        scale: unit
+        base: -1.0
+        sigma: 0.5
+        weights:
+          household.politics_engagement: { engaged: 0.6, activist: 1.0 }
+          state.education: { bachelors: 0.3, masters: 0.5, doctorate_professional: 0.6 }
+          adult.conscientiousness: 0.2
+      - id: issues
+        type: issues
+        consistency: adult.political_consistency
+        noise: 0.6
+        issues:
+          - id: immigration
+            axes: { adult.cultural: 0.6, adult.economic: 0.3 }
+            base_salience: 0.25
+            stakes:
+              - note: Immigrant family.
+                when: { any_parent.immigrant_generation: [first, gen_1_5] }
+                shift: -0.4
+                salience: 0.4
+          - id: gun_control
+            note: +1 = against gun control.
+            axes: { adult.authority: -0.3, adult.cultural: 0.6 }
+            base_salience: 0.2
+            stakes:
+              - note: Grew up rural.
+                when: { context.urbanicity: [rural, small_town] }
+                shift: 0.2
+                salience: 0.2
+              - note: Served in the military.
+                when: { state.military: [serving, veteran] }
+                shift: 0.15
+                salience: 0.2
+          - id: abortion
+            axes: { adult.cultural: 0.8 }
+            base_salience: 0.25
+            stakes:
+              - note: Devout household.
+                when: { any_parent.practice: [devout, strict] }
+                shift: 0.2
+                salience: 0.3
+          - id: lgbtq_rights
+            note: +1 = against expanding LGBTQ rights.
+            axes: { adult.cultural: 0.8 }
+            base_salience: 0.2
+          - id: taxes
+            note: +1 = lower taxes.
+            axes: { adult.economic: 0.8 }
+            base_salience: 0.2
+            stakes:
+              - note: Family ran a small business.
+                when: { any_parent.occupation: small_business }
+                shift: 0.3
+                salience: 0.3
+          - id: healthcare
+            note: +1 = against public healthcare.
+            axes: { adult.economic: 0.7 }
+            base_salience: 0.25
+            stakes:
+              - note: Serious illness.
+                when: { state.illnesses: ">=1" }
+                shift: -0.3
+                salience: 0.4
+          - id: free_trade
+            note: +1 = for free trade.
+            axes: { adult.economic: 0.4 }
+            base_salience: 0.1
+            stakes:
+              - note: Lost a job.
+                when: { life.job_loss: "!never" }
+                shift: -0.4
+                salience: 0.3
+          - id: policing
+            note: +1 = tougher policing.
+            axes: { adult.authority: 0.7, adult.cultural: 0.2 }
+            base_salience: 0.2
+            stakes:
+              - note: Has a legal record.
+                when: { state.legal_record: "yes" }
+                shift: -0.4
+                salience: 0.4
+      - id: religion
+        type: roll
+        values: [none, spiritual, catholic, mainline_protestant, evangelical, orthodox, latter_day_saint, jewish, muslim, hindu, buddhist, sikh, folk_other]
+        odds: { none: 2, spiritual: 1, catholic: 0.1, mainline_protestant: 0.1, evangelical: 0.1, orthodox: 0.05, latter_day_saint: 0.05, jewish: 0.05, muslim: 0.05, hindu: 0.05, buddhist: 0.05, sikh: 0.02, folk_other: 0.05 }
+        inherit: [mother.religion, father.religion]
+        inherit_weight: 4
+        mods:
+          - when: { state.education: [masters, doctorate_professional] }
+            mul: { none: 1.5, spiritual: 1.2 }
+          - when: { place.urbanicity: urban_core }
+            mul: { none: 1.3 }
+          - when: { year: ">=1995" }
+            mul: { none: 1.4 }
+          - when: { any_parent.practice: [devout, strict] }
+            mul: { none: 0.5, spiritual: 0.5 }
+      - id: religiosity
+        type: score
+        scale: unit
+        base: -0.5
+        sigma: 0.6
+        weights:
+          any_parent.practice: { nominal: -0.3, regular: 0.6, devout: 1.2, strict: 1.5 }
+          state.community_ties: { strong: 0.5 }
+          adult.religion: { none: -3.0, spiritual: -0.8 }
+          z.threat_sensitivity: 0.1
+      - id: monogamy_view
+        type: roll
+        values: [strict, flexible, open, prefers_non_monogamy]
+        odds: { strict: 55, flexible: 30, open: 10, prefers_non_monogamy: 5 }
+        mods:
+          - when: { adult.religiosity: ">=0.6" }
+            mul: { strict: 2 }
+          - when: { adult.novelty_seeking: ">=1" }
+            mul: { open: 2, prefers_non_monogamy: 2 }
+          - when: { place.norms_sex: permissive }
+            mul: { open: 1.5, prefers_non_monogamy: 1.3 }
+          - when: { place.norms_sex: restrictive }
+            mul: { strict: 1.5 }
+          - when: { state.cheated_on: "yes" }
+            mul: { strict: 1.5 }
+      - id: lifestyle
+        note: Alternative (-) to traditional (+) way of living and presenting yourself. Visible on a first date. Not politics; see cultural.
+        type: score
+        sigma: 0.5
+        weights:
+          adult.novelty_seeking: -0.5
+          adult.conscientiousness: 0.2
+          adult.cultural: 0.4
+          adult.religiosity: 0.6
+          adult.monogamy_view: { open: -0.4, prefers_non_monogamy: -0.7 }
+          state.peer_acceptance: { rejected: -0.3 }
+          state.field: { arts: -0.5 }
+          state.career: { creative: -0.5, homemaker: 0.6 }
+          place.urbanicity: { urban_core: -0.2 }
+          state.relationship: { married: 0.3 }
+        mods:
+          - note: Rebellion. A strict upbringing plus high reward drive pushes away from tradition.
+            when: { any_parent.practice: [devout, strict], z.reward_drive: ">=1" }
+            add: -0.8
+          - when: { age: ">=35" }
+            add: 0.2
+      - id: lifestyle_label
+        note: About 20% alt, 60% mainstream, 20% trad.
+        type: derive
+        values: [alt, mainstream, trad]
+        rules:
+          - when: { adult.lifestyle: "<=-0.85" }
+            value: alt
+          - when: { adult.lifestyle: ">=0.85" }
+            value: trad
+          - value: mainstream
+      - id: gender_roles
+        note: Egalitarian (-) to traditional (+) views on roles at home and in a relationship. Independent of lifestyle, so an alt pawn can still want traditional roles.
+        type: score
+        sigma: 0.5
+        weights:
+          context.norms_gender: { traditional: 0.5, egalitarian: -0.4 }
+          place.norms_gender: { traditional: 0.2, egalitarian: -0.2 }
+          mother.occupation: { homemaker: 0.3 }
+          any_parent.practice: { devout: 0.4, strict: 0.5 }
+          adult.religiosity: 0.4
+          adult.cultural: 0.4
+          state.education: { bachelors: -0.15, masters: -0.25, doctorate_professional: -0.3 }
+          state.career: { homemaker: 0.5 }
+          pawn.sex: { male: 0.15 }
+      - id: gender_roles_label
+        type: derive
+        values: [egalitarian, flexible, traditional]
+        rules:
+          - when: { adult.gender_roles: "<=-0.85" }
+            value: egalitarian
+          - when: { adult.gender_roles: ">=0.85" }
+            value: traditional
+          - value: flexible
+      - id: money_saver_spender
+        note: Negative saves, positive spends.
+        type: score
+        sigma: 0.6
+        weights: { adult.conscientiousness: -0.5, adult.novelty_seeking: 0.3, wchannel.scarcity: -0.2, z.reward_drive: 0.2 }
+      - id: money_meaning
+        type: choice
+        options:
+          - id: security
+            weights: { wchannel.scarcity: 0.8, z.threat_sensitivity: 0.4 }
+          - id: status
+            weights: { z.reward_drive: 0.4, household.wealth: { affluent: 0.3, wealthy: 0.5 } }
+          - id: freedom
+            weights: { wchannel.constraint: 0.8, adult.novelty_seeking: 0.3 }
+          - id: indifferent
+            weight: 0.6
+            weights: { adult.agreeableness: 0.2 }
+
+  # ------------------------------------------------------------------ sexuality
+  - id: sexuality
+    title: Sexuality
+    note: Spec 6.7.
+    items:
+      - id: libido
+        type: score
+        scale: unit
+        sigma: 0.5
+        weights:
+          z.reward_drive: 0.5
+          z.threat_sensitivity: -0.3
+          adult.general_health: { fair: -0.2, poor: -0.4 }
+        mods:
+          - note: Age curve.
+            when: { age: ">=40" }
+            add: -0.3
+      - id: kinks
+        type: list
+        max: 3
+        levels: [curious, enjoys, needs]
+        disclosure:
+          base: 0.5
+          weights:
+            adult.neuroticism: -0.5
+            adult.extraversion: 0.3
+            hist.partner_count: 0.1
+            place.norms_sex: { restrictive: -0.5, conservative: -0.2, permissive: 0.3 }
+        entries:
+          - id: dominance
+            prevalence: 0.12
+            weights: { z.reward_drive: 0.4, adult.agreeableness: -0.3, adult.novelty_seeking: 0.3 }
+            intensity: { base: -0.5, weights: { adult.novelty_seeking: 0.5, adult.libido: 1.0 } }
+            stigma: 0.4
+          - id: submission
+            prevalence: 0.15
+            weights: { adult.agreeableness: 0.3, adult.novelty_seeking: 0.3, wchannel.rupture: 0.2 }
+            intensity: { base: -0.5, weights: { adult.novelty_seeking: 0.5, adult.libido: 1.0 } }
+            stigma: 0.45
+          - id: bondage
+            prevalence: 0.1
+            weights: { adult.novelty_seeking: 0.5 }
+            intensity: { base: -0.5, weights: { adult.novelty_seeking: 0.5, adult.libido: 1.0 } }
+            stigma: 0.5
+          - id: roleplay
+            prevalence: 0.15
+            weights: { adult.novelty_seeking: 0.4, adult.extraversion: 0.2 }
+            intensity: { base: -0.8, weights: { adult.novelty_seeking: 0.5, adult.libido: 1.0 } }
+            stigma: 0.3
+          - id: sensation_play
+            prevalence: 0.08
+            weights: { adult.novelty_seeking: 0.5 }
+            intensity: { base: -0.5, weights: { adult.novelty_seeking: 0.5, adult.libido: 1.0 } }
+            stigma: 0.5
+          - id: voyeurism
+            prevalence: 0.07
+            weights: { adult.extraversion: -0.2, adult.novelty_seeking: 0.3 }
+            intensity: { base: -0.5, weights: { adult.libido: 1.0 } }
+            stigma: 0.6
+          - id: exhibitionism
+            prevalence: 0.05
+            weights: { adult.extraversion: 0.5, adult.novelty_seeking: 0.4 }
+            intensity: { base: -0.5, weights: { adult.libido: 1.0 } }
+            stigma: 0.6
+          - id: group_sex
+            prevalence: 0.05
+            weights: { adult.novelty_seeking: 0.6, adult.monogamy_view: { open: 1.0, prefers_non_monogamy: 1.5, strict: -1.0 } }
+            intensity: { base: -0.5, weights: { adult.libido: 1.0 } }
+            stigma: 0.6
+          - id: praise
+            prevalence: 0.1
+            weights: { adult.anxiety: 0.4 }
+            intensity: { base: -0.5, weights: { adult.anxiety: 0.4, adult.libido: 1.0 } }
+            stigma: 0.2
+          - id: public_risk
+            prevalence: 0.06
+            weights: { adult.novelty_seeking: 0.6, z.threat_sensitivity: -0.3 }
+            intensity: { base: -0.5, weights: { adult.libido: 1.0 } }
+            stigma: 0.5
+
+  # ---------------------------------------------------------------------- wants
+  - id: wants
+    title: Wants
+    note: Spec 6.8. Life goals, partner preferences, dealbreakers.
+    items:
+      - id: goals
+        type: goals
+        pick_min: 2
+        pick_max: 4
+        goals:
+          - id: marriage
+            base: 0.5
+            weights: { any_parent.practice: { devout: 0.5, strict: 0.6 }, adult.anxiety: 0.2, adult.religiosity: 0.5 }
+            deadline: 30
+            deadline_weights: { place.norms_family: { extended: -2, individualist: 2 } }
+            achieved: { state.relationship: married }
+          - id: children
+            base: 0.4
+            weights: { adult.religiosity: 0.5, z.affiliation: 0.3 }
+            deadline: 33
+            achieved: { state.children: ">=1" }
+          - id: home_ownership
+            base: 0.3
+            weights: { wchannel.scarcity: 0.6, adult.conscientiousness: 0.2 }
+            deadline: 35
+            achieved: { state.wealth: [upper_middle, affluent, wealthy] }
+          - id: financial_target
+            base: 0.2
+            weights: { wchannel.scarcity: 0.5, z.reward_drive: 0.2, adult.money_meaning: { status: 0.5, security: 0.3 } }
+            deadline: 40
+            achieved: { state.income: [high, very_high] }
+          - id: career_peak
+            base: 0.3
+            weights: { adult.conscientiousness: 0.5, z.reward_drive: 0.3 }
+            deadline: 40
+            achieved: { state.career: [professional, manager_executive, academic] }
+          - id: creative_work
+            base: -0.2
+            weights: { adult.novelty_seeking: 0.6, state.field: { arts: 0.8, humanities: 0.3 } }
+            deadline: 35
+            achieved: { state.career: creative }
+          - id: leave_the_city
+            base: -0.4
+            weights: { wchannel.constraint: 0.6, adult.novelty_seeking: 0.3, pawn.born_locally: { "yes": 0.3 } }
+            deadline: 32
+          - id: travel_the_world
+            base: 0
+            weights: { adult.novelty_seeking: 0.5 }
+            deadline: 30
+
+      - id: pref_political_distance
+        note: Largest political gap the pawn says it tolerates in a partner (0-1).
+        type: score
+        scale: unit
+        base: 0.5
+        sigma: 0.4
+        weights: { adult.political_consistency: -1.0, household.politics_engagement: { activist: -0.6, engaged: -0.3 } }
+      - id: pref_religion_match
+        type: roll
+        values: ["yes", "no"]
+        odds: { "yes": 1, "no": 3 }
+        mods:
+          - when: { adult.religiosity: ">=0.7" }
+            mul: { "yes": 12 }
+          - when: { adult.religiosity: ">=0.4" }
+            mul: { "yes": 2 }
+      - id: pref_children
+        type: derive
+        values: [wants, open, doesnt_want]
+        rules:
+          - when: { adult.goals.children: [active, achieved] }
+            value: wants
+          - when: { state.children: ">=1" }
+            value: open
+          - when: { adult.novelty_seeking: ">=1", adult.religiosity: "<0.3" }
+            value: doesnt_want
+          - value: open
+      - id: pref_monogamy
+        type: derive
+        values: [monogamous_only, either, open_only]
+        rules:
+          - when: { adult.monogamy_view: strict }
+            value: monogamous_only
+          - when: { adult.monogamy_view: prefers_non_monogamy }
+            value: open_only
+          - value: either
+      - id: pref_partner_status
+        note: How much the pawn says a partner's income and standing matter (0-1).
+        type: score
+        scale: unit
+        base: -0.5
+        sigma: 0.5
+        weights: { adult.money_meaning: { status: 0.8, security: 0.4 }, household.wealth: { affluent: 0.3, wealthy: 0.5 } }
+      - id: revealed_partner_status
+        note: What the pawn actually goes for. Scarcity and anxiety pull toward security.
+        type: blend
+        stated: adult.pref_partner_status
+        base: 0.5
+        weights: { wchannel.scarcity: 0.3, adult.anxiety: 0.15 }
+      - id: pref_partner_availability
+        note: How emotionally available the pawn says a partner should be (0-1). Most people say very.
+        type: score
+        scale: unit
+        base: 1.5
+        sigma: 0.4
+      - id: revealed_partner_availability
+        note: Spec 6.8, anxious pawns lean toward avoidant (less available) partners.
+        type: blend
+        stated: adult.pref_partner_availability
+        base: 0.8
+        weights: { adult.anxiety: -0.35, wchannel.care_inconsistency: -0.2 }
+
+      - id: dealbreakers
+        type: dealbreakers
+        hard_at: 0.8
+        dealbreakers:
+          - id: religion
+            rule: partner shares my religion
+            when: { adult.religiosity: ">=0.7" }
+            hardness: { base: 0.4, weights: { adult.religiosity: 0.5 } }
+          - id: monogamy
+            rule: partner's view on monogamy fits mine
+            when: { adult.monogamy_view: [strict, prefers_non_monogamy] }
+            hardness: { base: 0.85 }
+          - id: children
+            rule: partner wants children as much as I do
+            when: { adult.pref_children: [wants, doesnt_want] }
+            hardness: { base: 0.5, weights: { adult.goals.children: { active: 0.3 } } }
+          - id: dominance_match
+            rule: partner enjoys being led
+            when: { adult.kinks.dominance: needs }
+            hardness: { base: 0.8 }
+          - id: submission_match
+            rule: partner enjoys taking the lead
+            when: { adult.kinks.submission: needs }
+            hardness: { base: 0.8 }
+          - id: fidelity
+            rule: partner has never cheated
+            when: { state.cheated_on: "yes" }
+            hardness: { base: 0.5, weights: { adult.anxiety: 0.2 } }
+          - id: smoking
+            rule: partner doesn't smoke
+            when: { adult.smoking: never, adult.conscientiousness: ">=0.5" }
+            hardness: { base: 0.65, weights: { adult.conscientiousness: 0.1 } }
+          - id: politics
+            rule: partner's politics are close to mine
+            when: { adult.pref_political_distance: "<=0.3" }
+            hardness: { base: 0.6, weights: { adult.political_consistency: 0.3 } }
+
+  # ----------------------------------------------------------------- inner life
+  - id: inner_life
+    title: Inner life
+    note: Spec 6.9.
+    items:
+      - id: inner_life
+        type: inner_life
+        wound_threshold: 0.4
+        regret_threshold: 1.0
+        max_secrets: 2
+        beliefs:
+          - { reading: people_leave, belief: people_leave, want: constant_reassurance, need: someone_who_stays }
+          - { reading: rely_on_myself, belief: i_can_only_rely_on_myself, want: independence, need: safe_dependence }
+          - { reading: keep_everyone_calm, belief: my_needs_come_last, want: harmony, need: to_be_heard }
+          - { reading: something_wrong_with_me, belief: i_am_not_enough, want: approval, need: unconditional_acceptance }
+          - { reading: fight_back, belief: the_world_is_hostile, want: control, need: to_feel_safe_with_someone }
+          - { reading: keep_my_head_down, belief: do_not_be_seen, want: invisibility, need: to_be_seen_safely }
+          - { reading: lost_everyone, belief: everything_ends, want: stability, need: roots }
+          - { reading: i_ruin_things, belief: i_ruin_good_things, want: perfection, need: forgiveness }
+          - { reading: failure, belief: i_failed_at_love, want: proof_of_worth, need: self_compassion }
+          - { reading: my_fault, belief: i_have_to_earn_my_place, want: achievement, need: worth_beyond_work }
+          - { reading: replaced, belief: i_can_be_replaced, want: to_be_chosen, need: secure_belonging }
+          - { reading: intruder, belief: i_can_be_replaced, want: to_be_chosen, need: secure_belonging }
+          - { reading: haunted, belief: danger_is_everywhere, want: vigilance, need: peace }
+          - { reading: fragile, belief: my_body_will_fail_me, want: certainty, need: acceptance }
+          - { reading: resentment, belief: the_system_is_rigged, want: respect, need: a_fair_chance }
+          - { reading: hold_on_tighter, belief: love_is_fragile, want: closeness, need: trust }
+          - { reading: the_system, belief: the_system_is_rigged, want: respect, need: a_fair_chance }
+        hideable:
+          legal_trouble: 0.7
+          breakup:cheated: 0.8
+          divorce:infidelity: 0.5
+          job_loss: 0.3
+          illness: 0.4
+          bullying: 0.3
+          guardianship:foster: 0.4
+      - id: coping
+        type: choice
+        options:
+          - id: exercise
+            weights: { adult.conscientiousness: 0.5, adult.activity: { active: 0.8, athletic: 1.2 } }
+          - id: work
+            weights: { adult.conscientiousness: 0.6, adult.goals.career_peak: { active: 0.6 } }
+          - id: drinking
+            note: Spec 6.9, high reward drive plus a drinking parent leans toward drinking.
+            requires: { adult.drinking: [heavy, dependent] }
+            weight: 2
+            weights: { z.reward_drive: 0.6, any_parent.substance_use: { heavy_drinking: 0.6, alcohol_dependence: 1.0 } }
+          - id: smoking
+            requires: { adult.smoking: [occasional, daily] }
+            weights: { adult.neuroticism: 0.4 }
+          - id: eating
+            weights: { adult.neuroticism: 0.3 }
+          - id: gaming
+            weights: { adult.extraversion: -0.4 }
+          - id: socializing
+            weights: { adult.extraversion: 0.6 }
+          - id: withdrawal
+            weights: { adult.avoidance: 0.6, adult.neuroticism: 0.3 }
+          - id: therapy
+            weight: 0.5
+            weights: { adult.self_insight: 0.6, state.income: { high: 0.3, very_high: 0.4 } }
+          - id: faith
+            weights: { adult.religiosity: 2.0 }
+          - id: sex
+            weight: 0.6
+            weights: { adult.libido: 1.5, adult.novelty_seeking: 0.3 }
+
+  # -------------------------------------------------------------- social circle
+  - id: social_circle
+    title: Social circle
+    note: Social circle and health, section 3.
+    items:
+      - id: close_friends
+        note: Overdispersed count. Targets about 12% with none, median 3.
+        type: count
+        cap: 12
+        base: 1.55
+        sigma: 0.55
+        weights:
+          adult.extraversion: 0.25
+          adult.agreeableness: 0.15
+          adult.avoidance: -0.2
+          state.close_friendships: { none: -0.5, solid: 0.3 }
+          state.community_ties: { strong: 0.1, none: -0.1 }
+          pawn.born_locally: { "yes": 0.2 }
+          hist.moved_as_adult: { "yes": -0.15 }
+          adult.general_health: { fair: -0.1, poor: -0.2 }
+          age: -0.01
+      - id: circle_size
+        type: derive
+        values: [tiny, small, medium, large]
+        rules:
+          - when: { adult.close_friends: ">=8" }
+            value: large
+          - when: { adult.extraversion: ">=1", adult.close_friends: ">=3" }
+            value: large
+          - when: { adult.close_friends: ">=4" }
+            value: medium
+          - when: { adult.close_friends: ">=2" }
+            value: small
+          - when: { adult.extraversion: ">=0.5" }
+            value: small
+          - value: tiny
+      - id: circle_status
+        note: Friends tend to share the pawn's class, education and age.
+        type: score
+        sigma: 0.5
+        weights:
+          state.income: { none: -0.4, low: -0.2, high: 0.3, very_high: 0.5 }
+          state.education: { some_secondary: -0.3, bachelors: 0.3, masters: 0.4, doctorate_professional: 0.5 }
+          state.career: { professional: 0.3, manager_executive: 0.4, academic: 0.3, unskilled_labor: -0.2, unemployed: -0.3 }
+          household.wealth: { affluent: 0.15, wealthy: 0.3 }
+          adult.extraversion: 0.15
+      - id: standing_in_circle
+        type: choice
+        options:
+          - id: peripheral
+            weights: { adult.avoidance: 0.5, adult.extraversion: -0.4, wchannel.shame: 0.3 }
+          - id: member
+            weight: 1.65
+          - id: central
+            weights: { adult.extraversion: 0.4, adult.agreeableness: 0.3 }
+          - id: connector
+            weight: 0.6
+            weights: { adult.extraversion: 0.5, adult.novelty_seeking: 0.3, adult.close_friends: 0.05 }
+      - id: social_support
+        type: score
+        scale: unit
+        base: -1.0
+        sigma: 0.3
+        weights:
+          adult.close_friends: 0.2
+          adult.avoidance: -0.3
+          wchannel.rupture: -0.2
+          wchannel.secure_bond: 0.3
+          state.relationship: { cohabiting: 0.3, married: 0.4 }
+          state.extended_family_contact: { frequent: 0.3 }
+      - id: social_need
+        type: score
+        scale: unit
+        weights: { z.affiliation: 0.6, adult.extraversion: 0.4, adult.anxiety: 0.3 }
+      - id: loneliness
+        note: The gap between the company the pawn wants and the company it has, not the friend count.
+        type: score
+        scale: clamp01
+        sigma: 0.1
+        weights: { adult.social_need: 1.0, adult.social_support: -1.0 }
+
+  # -------------------------------------------------------------- mental health
+  - id: mental_health
+    title: Mental health
+    note: Social circle and health, section 4. The social term is deliberately small.
+    items:
+      - id: mental_health_risk
+        type: score
+        sigma: 0.7
+        weights:
+          adult.neuroticism: 0.45
+          adult.wound_impact: 0.25
+          any_parent.mental_health_severity: { mild: 0.075, moderate: 0.15, severe: 0.15 }
+          adult.general_health: { fair: 0.1, poor: 0.2 }
+          adult.drinking: { heavy: 0.1, dependent: 0.2 }
+          adult.loneliness: 0.27
+          adult.social_support: -0.2
+      - id: mental_health_severity
+        type: derive
+        values: [stable, mild, moderate, severe]
+        rules:
+          - when: { adult.mental_health_risk: ">=1.88" }
+            value: severe
+          - when: { adult.mental_health_risk: ">=1.175" }
+            value: moderate
+          - when: { adult.mental_health_risk: ">=0.524" }
+            value: mild
+          - value: stable
+      - id: mental_health_type
+        type: choice
+        options:
+          - id: none
+            requires: { adult.mental_health_severity: stable }
+          - id: anxiety
+            requires: { adult.mental_health_severity: "!stable" }
+            weight: 3
+            weights: { z.threat_sensitivity: 0.8 }
+          - id: depression
+            requires: { adult.mental_health_severity: "!stable" }
+            weight: 3
+            weights: { adult.loneliness: 1.0, adult.general_health: { poor: 0.4 } }
+          - id: bipolar
+            requires: { adult.mental_health_severity: "!stable" }
+            weight: 0.5
+          - id: personality_traits
+            requires: { adult.mental_health_severity: "!stable" }
+            weight: 0.6
+            weights: { wchannel.care_coldness: 0.3 }
+          - id: psychotic
+            requires: { adult.mental_health_severity: [moderate, severe] }
+            weight: 0.15
+          - id: trauma
+            requires: { adult.mental_health_severity: "!stable" }
+            weight: 1
+            weights: { climate.domestic_violence: { physical_toward_children: 1.5, physical_between_parents: 0.8 }, adult.wound_impact: 0.5 }
+      - id: mental_health_treatment
+        type: choice
+        options:
+          - id: none
+            requires: { adult.mental_health_severity: stable }
+          - id: untreated
+            requires: { adult.mental_health_severity: "!stable" }
+            weight: 1.5
+          - id: treated
+            requires: { adult.mental_health_severity: "!stable" }
+            weights:
+              state.income: { high: 0.4, very_high: 0.5 }
+              state.education: { bachelors: 0.3, masters: 0.5, doctorate_professional: 0.5 }
+              place.urbanicity: { urban_core: 0.3 }
+              adult.social_support: 0.8

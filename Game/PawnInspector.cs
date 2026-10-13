@@ -6,12 +6,14 @@ using Godot;
 using YouWillDate.Sim;
 using YouWillDate.Sim.Data;
 using YouWillDate.Sim.Generation;
+using YouWillDate.Sim.Life;
 
 namespace YouWillDate.Game;
 
 /// <summary>
-/// One pawn at a time. Pick a seed, click any value to see how it was rolled,
-/// override values to see what changes downstream.
+/// One pawn at a time, in three tabs: its starting point, its life, and its
+/// adult traits. Click any value to see how it was determined; override
+/// starting values to see what changes downstream.
 /// </summary>
 public partial class PawnInspector : VBoxContainer
 {
@@ -20,6 +22,8 @@ public partial class PawnInspector : VBoxContainer
         ["pawn"] = "Pawn", ["context"] = "Context", ["mother"] = "Mother", ["father"] = "Father",
         ["parents"] = "Parents match?", ["household"] = "Household",
         ["surroundings"] = "Surroundings", ["climate"] = "Home climate",
+        ["state"] = "Now", ["life"] = "Events and choices", ["channel"] = "Channels",
+        ["place"] = "Where they live now", ["clock"] = "Clock",
     };
 
     public DataHost Host { get; init; } = null!;
@@ -34,7 +38,8 @@ public partial class PawnInspector : VBoxContainer
     bool _updating;
 
     LineEdit _seedInput = null!;
-    Tree _tree = null!;
+    TabContainer _partTabs = null!;
+    readonly Tree[] _trees = new Tree[3];
     Label _detailTitle = null!;
     HBoxContainer _overrideRow = null!;
     OptionButton _valuePicker = null!;
@@ -85,7 +90,7 @@ public partial class PawnInspector : VBoxContainer
         if (Host.Generator is not { } gen) return;
         try
         {
-            _pawn = gen.Generate(_seed, new GenerateOptions { Overrides = _overrides, Trace = true });
+            _pawn = gen.Generate(_seed, new GenerateOptions { Overrides = _overrides, Trace = true, LifeDetails = true });
             _baseline = _overrides.Count > 0 ? gen.Generate(_seed) : null;
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException)
@@ -121,9 +126,9 @@ public partial class PawnInspector : VBoxContainer
         Regenerate();
     }
 
-    void OnTreeSelected()
+    void OnTreeSelected(Tree tree)
     {
-        var meta = _tree.GetSelected()?.GetMetadata(0);
+        var meta = tree.GetSelected()?.GetMetadata(0);
         if (meta is null || meta.Value.VariantType == Variant.Type.Nil) return;
         _selectedKey = meta.Value.AsString();
         ShowDetail();
@@ -134,26 +139,51 @@ public partial class PawnInspector : VBoxContainer
     void BuildTree()
     {
         _updating = true;
-        _tree.Clear();
-        var root = _tree.CreateItem();
-        var sections = new Dictionary<string, TreeItem>();
+        var roots = new TreeItem[_trees.Length];
+        for (int i = 0; i < _trees.Length; i++)
+        {
+            _trees[i].Clear();
+            roots[i] = _trees[i].CreateItem();
+        }
+        var sections = new Dictionary<(int, string), TreeItem>();
         TreeItem? selected = null;
 
-        foreach (var t in _pawn!.Trace!)
+        TreeItem Head(int part, string title, bool collapsed = false)
         {
-            string section = t.Key == "year" ? "pawn" : t.Key[..t.Key.IndexOf('.')];
-            if (!sections.TryGetValue(section, out var head))
-            {
-                head = _tree.CreateItem(root);
-                head.SetText(0, SectionTitles.GetValueOrDefault(section, Capitalize(section)));
-                head.SetSelectable(0, false);
-                head.SetSelectable(1, false);
-                head.Collapsed = section == "parents";
-                sections[section] = head;
-            }
+            if (sections.TryGetValue((part, title), out var head)) return head;
+            head = _trees[part].CreateItem(roots[part]);
+            head.SetText(0, title);
+            head.SetSelectable(0, false);
+            head.SetSelectable(1, false);
+            head.Collapsed = collapsed;
+            return sections[(part, title)] = head;
+        }
 
-            var row = _tree.CreateItem(head);
-            row.SetText(0, RowLabel(t.Key, section));
+        // The life story leads the Life tab: one row per history entry.
+        if (_pawn!.History.Count > 0)
+        {
+            var story = Head((int)PawnPart.Life, $"Life story ({_pawn.History.Count})");
+            foreach (var e in _pawn.History)
+            {
+                var row = _trees[(int)PawnPart.Life].CreateItem(story);
+                string line = PawnText.Line(e);
+                row.SetText(0, $"age {e.Age}");
+                row.SetText(1, line[(line.IndexOf(':') + 2)..]);
+                row.SetTooltipText(1, line);
+                row.SetMetadata(0, $"history:{e.Id}");
+                if (e.Negative && e.Type == LifeItemType.Event) row.SetCustomColor(1, new Color(1f, 0.75f, 0.75f));
+                if ($"history:{e.Id}" == _selectedKey) selected = row;
+            }
+        }
+
+        foreach (var t in _pawn.Trace!)
+        {
+            int part = (int)PawnParts.Of(t.Key);
+            string title = SectionTitle(t.Key, (PawnPart)part);
+            var head = Head(part, title, collapsed: title is "Parents match?" or "Adult inputs" or "Clock");
+
+            var row = _trees[part].CreateItem(head);
+            row.SetText(0, RowLabel(t.Key));
             row.SetText(1, Ui.Pretty(t.ValueText));
             row.SetMetadata(0, t.Key);
 
@@ -176,14 +206,63 @@ public partial class PawnInspector : VBoxContainer
         if (selected is not null)
         {
             selected.Select(0);
-            _tree.ScrollToItem(selected);
+            selected.GetTree().ScrollToItem(selected);
         }
         _updating = false;
+    }
+
+    string SectionTitle(string key, PawnPart part)
+    {
+        if (part == PawnPart.Adult)
+            return Host.Catalog?.Get(key)?.Section ?? "Adult traits";
+        string prefix = key == "year" ? "pawn" : key.Contains('.') ? key[..key.IndexOf('.')] : "clock";
+        return SectionTitles.GetValueOrDefault(prefix, Capitalize(prefix));
+    }
+
+    void ShowHistory(HistoryEntry e)
+    {
+        _detailTitle.Text = PawnText.Line(e);
+        _overrideRow.Visible = true;
+        _valuePicker.Visible = _numberInput.Visible = _clearOne.Visible = false;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"{e.Type.ToString().ToLowerInvariant()} '{e.ItemId}' at age {e.Age} ({e.Year}), stage {e.Stage}");
+        sb.AppendLine($"outcome: {e.Outcome}" + (e.Reading is null ? "" : $"    read as: {e.Reading}"));
+        if (e.Changes.Count > 0)
+            sb.AppendLine("changed: " + string.Join(", ", e.Changes.Select(c => $"{c.Key} = {c.Value}")));
+        if (e.Channels.Count > 0)
+            sb.AppendLine("channels: " + string.Join(", ", e.Channels.Select(c =>
+                string.Create(CultureInfo.InvariantCulture, $"{c.Key} {c.Value:+0.##;-0.##}")))
+                + string.Create(CultureInfo.InvariantCulture, $"    impact {e.Impact:0.##}"));
+        if (e.Causes.Count > 0)
+        {
+            sb.AppendLine().AppendLine("Because of:");
+            foreach (var c in e.Causes) sb.AppendLine("  " + PawnText.Line(_pawn!.History[c]));
+        }
+        var consequences = _pawn!.History.Where(x => x.Causes.Contains(e.Id)).ToList();
+        if (consequences.Count > 0)
+        {
+            sb.AppendLine().AppendLine("Led to:");
+            foreach (var c in consequences) sb.AppendLine("  " + PawnText.Line(c));
+        }
+        if (e.Explain is not null)
+        {
+            sb.AppendLine().AppendLine("How it was rolled:");
+            sb.AppendLine(e.Explain);
+        }
+        _detail.Text = sb.ToString();
     }
 
     void ShowDetail()
     {
         _updating = true;
+        if (_selectedKey is not null && _selectedKey.StartsWith("history:") && _pawn is not null
+            && int.Parse(_selectedKey[8..]) is var id && id < _pawn.History.Count)
+        {
+            ShowHistory(_pawn.History[id]);
+            _updating = false;
+            return;
+        }
         var t = _selectedKey is null ? null : _pawn?.TraceFor(_selectedKey);
         if (t is null || Host.Data is null)
         {
@@ -253,11 +332,12 @@ public partial class PawnInspector : VBoxContainer
     static string? ValueOf(Pawn p, string key) =>
         p.Facts.Cat(key) ?? p.Facts.Num(key)?.ToString("0.###", CultureInfo.InvariantCulture);
 
-    static string RowLabel(string key, string section) => key switch
+    static string RowLabel(string key) => key switch
     {
         "year" => "birth year",
+        _ when !key.Contains('.') => Ui.Pretty(key),
         _ when key.StartsWith("parents.same.") => Ui.Pretty(key["parents.same.".Length..]),
-        _ => Ui.Pretty(key[(section.Length + 1)..]),
+        _ => Ui.Pretty(key[(key.IndexOf('.') + 1)..]).Replace(".", ": "),
     };
 
     static string Capitalize(string s) => s.Length == 0 ? s : char.ToUpperInvariant(s[0]) + s[1..];
@@ -284,15 +364,24 @@ public partial class PawnInspector : VBoxContainer
         var split = new HSplitContainer { SizeFlagsVertical = SizeFlags.ExpandFill };
         AddChild(split);
 
-        _tree = new Tree
+        _partTabs = new TabContainer
         {
-            Columns = 2, HideRoot = true, ColumnTitlesVisible = true,
-            CustomMinimumSize = new Vector2(380, 0), SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            CustomMinimumSize = new Vector2(400, 0), SizeFlagsHorizontal = SizeFlags.ExpandFill,
         };
-        _tree.SetColumnTitle(0, "Fact");
-        _tree.SetColumnTitle(1, "Value");
-        _tree.ItemSelected += () => { if (!_updating) OnTreeSelected(); };
-        split.AddChild(_tree);
+        foreach (var (part, title) in PawnParts.All)
+        {
+            var tree = new Tree
+            {
+                Name = title, Columns = 2, HideRoot = true, ColumnTitlesVisible = true,
+                SizeFlagsVertical = SizeFlags.ExpandFill,
+            };
+            tree.SetColumnTitle(0, "Fact");
+            tree.SetColumnTitle(1, "Value");
+            tree.ItemSelected += () => { if (!_updating) OnTreeSelected(tree); };
+            _trees[(int)part] = tree;
+            _partTabs.AddChild(tree);
+        }
+        split.AddChild(_partTabs);
 
         var right = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         right.AddThemeConstantOverride("separation", 8);
@@ -326,7 +415,13 @@ public partial class PawnInspector : VBoxContainer
         _overrideRow.AddChild(new VSeparator());
         _overrideRow.AddChild(Ui.Button("Edit this trait", () =>
         {
-            if (_selectedKey is not null) EditTraitRequested?.Invoke(GameData.SchemaKey(_selectedKey));
+            if (_selectedKey is null) return;
+            if (_selectedKey.StartsWith("history:") && _pawn is not null && int.Parse(_selectedKey[8..]) is var id && id < _pawn.History.Count)
+            {
+                var e = _pawn.History[id];
+                EditTraitRequested?.Invoke(e.Type == LifeItemType.Condition ? $"state.{e.ItemId}" : $"life.{e.ItemId}");
+            }
+            else EditTraitRequested?.Invoke(GameData.SchemaKey(_selectedKey));
         }, "Open this trait's definition in the Traits tab"));
 
         _detail = new RichTextLabel

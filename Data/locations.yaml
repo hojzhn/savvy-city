@@ -1,6 +1,14 @@
 # Birth locations. PLACEHOLDER DATA: rough figures for testing the generator,
 # not researched values. Replace with the game's real setting.
 #
+# Pawns all live in the game's city (current_city in config.yaml) but can be
+# born anywhere. A location's `origins` says where adults living there were
+# born, as relative weights by location id. It is only used when that location
+# is the current city; without one, birth locations are weighted by population.
+#
+# A location's periods describe it as a place to grow up (the pawn's birth
+# context), not as the place the pawn lives now.
+#
 # Each period applies from its year until the next period.
 # groups:    ethnic shares, used as base weights for parent ethnicity
 # religions: religious shares, used as base weights for parent religion
@@ -11,6 +19,7 @@ locations:
     name: Manhattan, New York
     population: 1.6
     urbanicity: urban_core
+    origins: { manhattan: 22, queens: 14, houston_suburbs: 7, rural_ohio: 6, salt_lake: 4, atlanta: 9, los_angeles: 10, small_town_alabama: 5 }
     periods:
       - from: 1975
         local_politics: strongly_left
@@ -143,6 +152,7 @@ locations:
     name: Los Angeles, California
     population: 3.8
     urbanicity: urban_core
+    origins: { los_angeles: 45, manhattan: 4, queens: 3, houston_suburbs: 8, rural_ohio: 4, salt_lake: 6, atlanta: 4, small_town_alabama: 3 }
     periods:
       - from: 1975
         local_politics: left_leaning

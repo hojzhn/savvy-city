@@ -1,0 +1,191 @@
+# Data Files
+
+All game rules live in YAML files in [Data/](../Data/). The debug app reloads
+them as soon as one is saved, and the loader rejects anything inconsistent with
+a message naming the file and entry. Each file's header comment repeats the key
+points of its format.
+
+**Most numbers are placeholders.** Rates and weights are rough estimates tuned
+to be plausible, not researched figures. See [status.md](status.md).
+
+**Notes, not comments.** The Traits tab can rewrite `family.yaml`,
+`config.yaml`, `locations.yaml`, `life.yaml` and `adult.yaml` when it saves. It
+keeps each file's header comment block but not comments further down. Use the
+`note:` field on groups, items, modifiers and options instead.
+
+## Shared syntax
+
+### Conditions
+
+Used in `when`, `only_if`, `requires`, `achieved` and rules.
+
+| Form | Meaning |
+| ----- | ----- |
+| `key: a` | the fact is `a` |
+| `key: [a, b]` | the fact is one of these |
+| `key: "!a"` | the fact is anything but `a` |
+| `key: ">=0.7"`, `"<1990"`, `"1990..1999"` | numeric comparisons |
+| `key: 18` | a numeric fact is exactly 18 |
+
+All conditions in one map must hold.
+
+### Weights (life.yaml and adult.yaml)
+
+| Form | Meaning |
+| ----- | ----- |
+| `fact: 0.5` | numeric fact: adds 0.5 × value. Temperament percentiles (`pawn.*`) are centred to -1..1 first. |
+| `fact: { a: 0.5, b: -1 }` | categorical fact: adds the weight for its current value |
+
+### Fact keys
+
+See the table in [architecture.md](architecture.md#facts). Inside a per-parent
+group, `self.x` is the parent being rolled; elsewhere use `mother.x`,
+`father.x` or `any_parent.x`.
+
+## config.yaml
+
+Global settings.
+
+| Field | Meaning |
+| ----- | ----- |
+| `current_city` | Location id of the city the game takes place in. Every pawn lives there. |
+| `present_year`, `age_min`, `age_max` | Pawn ages; birth years spread evenly over the range. |
+| `male_birth_rate` | Chance a pawn is male. |
+| `temperament.traits` | Temperament trait ids. Each becomes the 0–1 percentile fact `pawn.<id>`. |
+| `temperament.correlations` | `{ a, b, r }` pairs. The set must form a valid correlation matrix. |
+
+## locations.yaml
+
+Places a pawn can be born and live.
+
+| Field | Meaning |
+| ----- | ----- |
+| `id`, `name` | Identifier and display name. |
+| `population` | Relative weight for birth locations when the current city has no origins table. |
+| `urbanicity` | urban_core, inner_suburb, outer_suburb, small_town or rural. |
+| `origins` | When this is the current city: where adults living here were born, as weights by location id. |
+| `periods` | Conditions from a year onward (see below). Must cover every birth year. |
+
+Each period has `from`, `local_politics`, `diversity`, `norms_sex`,
+`norms_gender`, `norms_family`, optional `economic_era` (overrides eras.yaml),
+`groups` (ethnic shares, the base weights for parent ethnicity), `religions`
+(religious shares, the base weights for parent religion), and optional `rates`
+(local overrides of eras.yaml base rates).
+
+The periods describe a place as somewhere to grow up (the birth context) and,
+during the life simulation, as the place the pawn lives that year.
+
+## eras.yaml
+
+| Field | Meaning |
+| ----- | ----- |
+| `economic_eras` | `{ from, era }` entries: boom, steady_growth, stagnation, recession or crisis. |
+| `base_rates` | `{ from, rates: { name: value } }` entries. `life.yaml` uses them as `base: rate.<name>`. An entry applies until a later one sets the same rate. |
+
+## family.yaml
+
+The family and household (spec step 3), as groups of categorical items rolled
+in order.
+
+```yaml
+groups:
+  - name: parents
+    per_parent: true          # roll each item for the mother and the father
+    items:
+      - id: education
+        values: [none, primary, ...]
+        weights: { none: 1, primary: 2, ... }   # values left out weigh 1
+        assort: 0.4           # chance the father copies the mother's value
+        mods:
+          - when: { year: "<1990" }
+            mul: { bachelors: 0.8 }
+```
+
+| Field | Meaning |
+| ----- | ----- |
+| `values`, `weights` | Outcomes and base weights. |
+| `base_from` | Take base weights from the location's `groups` or `religions` shares instead. |
+| `only_if`, `default` | Roll only when the conditions hold; otherwise use the default. |
+| `assort` | Per-parent groups: chance the father copies the mother's value. |
+| `mods` | Each modifier multiplies weights when all its conditions hold. |
+
+After a per-parent group, `parents.same.<item>` (yes/no) says whether both
+parents share a value.
+
+## life.yaml
+
+The life simulation (spec section 4). The header lists every field; this is
+the summary.
+
+```yaml
+stages:          # contiguous, starting at 0; weight is used by the adult profile
+  - { id: early_childhood, from: 0, to: 5, weight: 1.0 }
+channels: [threat_shift, ..., shame]
+items:
+  - id: parental_divorce
+    type: event
+    window: [early_childhood, adolescence]
+    frequency: once
+    requires: { state.parents_together: "yes" }
+    rate:
+      base: rate.divorce_childhood
+      weights:
+        household.marriage_quality: { high_conflict: 1.2 }
+    outcomes:
+      - id: mother_custody
+        weight: 75
+        effects: { set: { state.household_shape: single_mother } }
+    readings:
+      - id: people_leave
+        weights: { pawn.threat_sensitivity: 2.0 }
+        effects: { channels: { care_inconsistency: 0.3 } }
+```
+
+**Item types.**
+
+| Type | Behaviour |
+| ----- | ----- |
+| `condition` | A state value `state.<id>`. `kind` is one of: `state` (changed only by effects), `number` (numeric, changed by effects), `roll` (weighted roll on its schedule), `drift` (moves one step up or down, with `up`/`down` rates), `derive` (first matching rule, every year), `counter` (+1 a year while `while` holds, else 0). |
+| `event` | Fires with probability `sigmoid(logit(base) + weights + mods)`. Optional `outcomes` (one is chosen), `readings` (chosen by temperament), `effects`, `valence` (negative or positive, for the impact score), `tags`. |
+| `fork` | Chooses one `option`: chance ∝ `weight × exp(utility / temperature)`. `sticky_key` and `sticky_bonus` make a re-chosen fork (like a career) favour its current choice. |
+
+**Schedule.** `window` ([stage] or [first, last]), `from_age`/`to_age`,
+`frequency` (once, per_stage, per_year), `ages` (exact ages), `max` (most times
+an event fires), `must_happen` (force it in the last simulated year if it has
+not fired).
+
+**Effects.** `set` (categorical state; `$current_city` for `state.location`),
+`add` (numeric state), `reset` (set to 0), `record_first_age` (set to the
+current age the first time), `channels` (add deltas).
+
+**Order within a year.** Items run in file order. An item sees changes made
+this year by items above it, and changes made by items below it as of last
+year.
+
+**Tags.** `relationship_start`, `relationship_married` and `relationship_end`
+build the partner list.
+
+**Summaries.** At the end, each event writes `life.<id>` (never, once, twice,
+3_plus) and each fork writes its last choice (or not_reached). Adult traits can
+read these; life items can't.
+
+## adult.yaml
+
+The adult profile (spec section 6). Items are grouped for display and run in
+file order. The header lists every field.
+
+| Type | Writes | Behaviour |
+| ----- | ----- | ----- |
+| `score` | `adult.<id>` | raw = base + weights + mods + N(0, sigma). `scale`: z (normalized and clamped to ±3), z_raw, unit (sigmoid), signed (tanh), clamp01. |
+| `count` | `adult.<id>` | Poisson draw with log mean = base + weights + noise, capped at `cap`. |
+| `blend` | `adult.<id>` | Revealed preference: stated + (1 − sigmoid(self_insight)) × (pull − stated). |
+| `roll` | `adult.<id>` | Weighted roll over `values` with `odds`, plus `inherit_weight` for the value of each `inherit` fact, times `mul` mods. |
+| `choice` | `adult.<id>` | Softmax over `options`, like a fork. |
+| `derive` | `adult.<id>` | First matching rule. |
+| `list` | `adult.<id>.<entry>` | Each entry fires with `sigmoid(logit(prevalence) + weights)`; the `max` most likely are kept with an intensity level (`levels`) and a disclosure. |
+| `goals` | `adult.<id>.<goal>` | Gumbel-top-k pick of `pick_min`–`pick_max` goals; each gets a deadline and a status (none, active, achieved, missed). |
+| `issues` | `adult.<id>.<issue>`, `..._salience` | Positions from -1 (progressive) to +1 (traditional), from the political axes, personal `stakes`, and noise × (1 − consistency). |
+| `dealbreakers` | `adult.<id>.<rule>` | none, soft or hard (hardness at or above `hard_at`). |
+| `inner_life` | `adult.core_wound`, `wound_impact`, `private_belief`, `want`, `need`, `regret`, `secret_count` | The core wound is the negative event with the highest impact above `wound_threshold`; `beliefs` map its reading to a belief, want and need. `hideable` lists events (or `item:outcome`) a pawn may keep secret, with their stigma. |
+
+`calibration_size` sets how many pawns are generated to normalize z-scale scores.

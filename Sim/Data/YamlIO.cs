@@ -83,7 +83,8 @@ public static class YamlIO
     sealed class FlowEmitter(IEventEmitter next) : ChainedEventEmitter(next)
     {
         static readonly HashSet<Type> FlowMaps =
-            [typeof(Dictionary<string, double>), typeof(Dictionary<string, object>), typeof(Correlation), typeof(EraEntry)];
+            [typeof(Dictionary<string, double>), typeof(Dictionary<string, object>), typeof(Dictionary<string, string>),
+             typeof(Dictionary<object, object>), typeof(Correlation), typeof(EraEntry), typeof(Life.StageDto)];
 
         public override void Emit(MappingStartEventInfo eventInfo, IEmitter emitter)
         {

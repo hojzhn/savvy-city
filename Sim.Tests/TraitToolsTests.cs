@@ -32,6 +32,37 @@ public class TraitToolsTests
     }
 
     [Fact]
+    public void LocationsRoundTripThroughTheWriter()
+    {
+        var data = TestData.Load();
+        string written = YamlIO.Write(data.LocationsSource, YamlIO.LeadingComments(TestData.ReadFile("locations.yaml")));
+        var reloaded = GameData.FromYaml(TestData.ReadFile("config.yaml"), written,
+            TestData.ReadFile("eras.yaml"), TestData.ReadFile("family.yaml"), TestData.ReadFile("life.yaml"),
+            TestData.ReadFile("adult.yaml"));
+
+        var a = new PawnGenerator(data);
+        var b = new PawnGenerator(reloaded);
+        for (ulong seed = 0; seed < 300; seed++)
+            Assert.Equal(a.Generate(seed).Facts.Categorical, b.Generate(seed).Facts.Categorical);
+        Assert.Equal(data.CurrentCity.Origins, reloaded.CurrentCity.Origins);
+    }
+
+    [Fact]
+    public void LifeRoundTripsThroughTheWriter()
+    {
+        var data = TestData.Load();
+        string written = YamlIO.Write(data.LifeSource!, YamlIO.LeadingComments(TestData.ReadFile("life.yaml")));
+        var reloaded = TestData.WithLife(written);
+
+        var a = new PawnGenerator(data);
+        var b = new PawnGenerator(reloaded);
+        for (ulong seed = 0; seed < 200; seed++)
+            Assert.Equal(a.Generate(seed).History.Select(PawnText.Line), b.Generate(seed).History.Select(PawnText.Line));
+        Assert.StartsWith("# Life simulation", written);
+        Assert.DoesNotContain("weight: 1\n", written.Replace("\r\n", "\n"));
+    }
+
+    [Fact]
     public void InlineMapsRoundTrip()
     {
         var when = YamlIO.ParseInlineMap<object>("self.education: [masters, bachelors], year: \">=1995\", household.siblings: \"!0\"");
